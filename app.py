@@ -3148,15 +3148,30 @@ def _hubspot_put_association(
     try:
         if association_type_id is not None:
             url = f"https://api.hubapi.com/crm/v4/objects/{from_type}/{from_id}/associations/{to_type}/{to_id}"
+            payload = [{
+                "associationCategory": "USER_DEFINED",
+                "associationTypeId": association_type_id,
+            }]
             r = requests.put(
                 url,
                 headers={
                     "Authorization": f"Bearer {HUBSPOT_TOKEN}",
                     "Content-Type": "application/json",
                 },
-                json=[{"associationTypeId": association_type_id}],
+                json=payload,
                 timeout=15,
             )
+            # Compatibility fallback: some portals may accept/require type id only.
+            if not (r.ok or r.status_code in (200, 201)):
+                r = requests.put(
+                    url,
+                    headers={
+                        "Authorization": f"Bearer {HUBSPOT_TOKEN}",
+                        "Content-Type": "application/json",
+                    },
+                    json=[{"associationTypeId": association_type_id}],
+                    timeout=15,
+                )
         else:
             url = f"https://api.hubapi.com/crm/v4/objects/{from_type}/{from_id}/associations/default/{to_type}/{to_id}"
             r = requests.put(
@@ -3497,6 +3512,11 @@ def _execute_sync_step(
             association_type_id=label_id,
         ):
             result["actions"].append(f"Associated attendee to event {ea.get('full_name', eid)} ({ea.get('label_name', '')})")
+        else:
+            result["errors"].append(
+                f"Failed to associate attendee to event {ea.get('full_name', eid)}"
+                f" ({ea.get('label_name', '')}, label_id={label_id})"
+            )
 
     # 4. Attendee → Festivals; skip if already associated
     for f in festival_associations:

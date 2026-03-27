@@ -171,17 +171,24 @@ If you didn't request this sign-in code, you can safely ignore this email.
     msg["To"] = to_email
     msg.attach(MIMEText(body, "plain"))
     context = ssl.create_default_context()
-    if SMTP_PORT == 465:
-        with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context, timeout=30) as smtp:
-            if SMTP_USER and SMTP_PASSWORD:
-                smtp.login(SMTP_USER, SMTP_PASSWORD)
-            smtp.sendmail(EMAIL_FROM, [to_email], msg.as_string())
-    else:
-        with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=30) as smtp:
-            smtp.starttls(context=context)
-            if SMTP_USER and SMTP_PASSWORD:
-                smtp.login(SMTP_USER, SMTP_PASSWORD)
-            smtp.sendmail(EMAIL_FROM, [to_email], msg.as_string())
+    try:
+        if SMTP_PORT == 465:
+            with smtplib.SMTP_SSL(SMTP_HOST, SMTP_PORT, context=context, timeout=15) as smtp:
+                if SMTP_USER and SMTP_PASSWORD:
+                    smtp.login(SMTP_USER, SMTP_PASSWORD)
+                smtp.sendmail(EMAIL_FROM, [to_email], msg.as_string())
+        else:
+            with smtplib.SMTP(SMTP_HOST, SMTP_PORT, timeout=15) as smtp:
+                smtp.starttls(context=context)
+                if SMTP_USER and SMTP_PASSWORD:
+                    smtp.login(SMTP_USER, SMTP_PASSWORD)
+                smtp.sendmail(EMAIL_FROM, [to_email], msg.as_string())
+    except smtplib.SMTPAuthenticationError as e:
+        raise RuntimeError("SMTP authentication failed. Check SMTP_USER/SMTP_PASSWORD.") from e
+    except smtplib.SMTPException as e:
+        raise RuntimeError(f"SMTP error while sending code: {str(e)}") from e
+    except OSError as e:
+        raise RuntimeError(f"SMTP connection failed: {str(e)}") from e
 
 
 @app.before_request
@@ -242,10 +249,10 @@ def send_code():
         _otp_email_last_send[email] = now
     try:
         _send_otp_email(email, code)
-    except Exception:
+    except Exception as e:
         with _otp_lock:
             _otp_store.pop(email, None)
-        return jsonify({"error": "Failed to send email; try again later"}), 500
+        return jsonify({"error": str(e) or "Failed to send email; try again later"}), 500
     return jsonify({"ok": True, "message": "Check your email for the code"})
 
 

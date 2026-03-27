@@ -122,6 +122,8 @@
         .then(function(methods) {
           if (!methods.email_code) {
             showError("Email sign-in is not configured for this environment.");
+            document.getElementById("send-btn").disabled = true;
+            emailInput.disabled = true;
           }
         })
         .catch(function() {
@@ -134,11 +136,14 @@
         var btn = document.getElementById("send-btn");
         btn.disabled = true;
         var email = emailInput.value.trim().toLowerCase();
+        var controller = new AbortController();
+        var timeout = setTimeout(function() { controller.abort(); }, 20000);
         fetch("/api/auth/send-code", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           credentials: "same-origin",
-          body: JSON.stringify({ email: email })
+          body: JSON.stringify({ email: email }),
+          signal: controller.signal
         })
           .then(function(r) {
             if (r.ok) {
@@ -151,8 +156,17 @@
             }
             return r.json().then(function(d) { showError((d && d.error) || "Failed to send code"); });
           })
-          .catch(function() { showError("Failed to send code"); })
-          .finally(function() { btn.disabled = false; });
+          .catch(function(err) {
+            if (err && err.name === "AbortError") {
+              showError("Request timed out while sending code. Check SMTP settings and try again.");
+              return;
+            }
+            showError("Failed to send code");
+          })
+          .finally(function() {
+            clearTimeout(timeout);
+            btn.disabled = false;
+          });
       });
 
       verifyForm.addEventListener("submit", function(e) {

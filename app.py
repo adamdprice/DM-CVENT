@@ -3554,6 +3554,7 @@ def _execute_sync_step(
     contact_deals = _hubspot_search_deals_for_contact(result["contact_id"])
     for item in deal_plan:
         action = item.get("action", "create")
+        event_id = str((item.get("event_id") or "")).strip()
         event_name = (item.get("event_name") or "").strip()
         dealname = item.get("dealname") or ""
         props = item.get("properties") or {}
@@ -3579,6 +3580,12 @@ def _execute_sync_step(
                         result["actions"].append("Associated attendee to deal")
                     else:
                         result["errors"].append("Failed to associate attendee to deal")
+                # Ensure deal is associated to the relevant event object.
+                if event_id:
+                    if _hubspot_put_association("deals", str(existing["id"]), HUBSPOT_EVENTS_OBJECT, event_id, association_type_id=None):
+                        result["actions"].append(f"Associated deal to event {event_name or event_id}")
+                    else:
+                        result["errors"].append(f"Failed to associate deal to event {event_name or event_id}")
                 # Ensure product association for quantity deals, if provided.
                 if product_id:
                     if _hubspot_put_association("deals", str(existing["id"]), "products", product_id, association_type_id=None):
@@ -3605,6 +3612,11 @@ def _execute_sync_step(
                 result["actions"].append("Associated attendee to deal")
             else:
                 result["errors"].append("Failed to associate attendee to deal")
+        if event_id:
+            if _hubspot_put_association("deals", deal_id, HUBSPOT_EVENTS_OBJECT, event_id, association_type_id=None):
+                result["actions"].append(f"Associated deal to event {event_name or event_id}")
+            else:
+                result["errors"].append(f"Failed to associate deal to event {event_name or event_id}")
         if product_id:
             if _hubspot_put_association("deals", deal_id, "products", product_id, association_type_id=None):
                 result["actions"].append(f"Associated deal to product {product_id}")

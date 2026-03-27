@@ -94,6 +94,7 @@ SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "").strip() or None
 EMAIL_FROM = os.getenv("EMAIL_FROM", "").strip() or None
 ALLOWED_EMAILS_STR = os.getenv("ALLOWED_EMAILS", "").strip() or None
 ALLOWED_EMAILS = [e.strip().lower() for e in (ALLOWED_EMAILS_STR or "").split(",") if e.strip()] or None
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip() or None
 
 SESSION_COOKIE_NAME = "dm_cvent_session"
 SESSION_MAX_AGE_SECONDS = 24 * 3600
@@ -107,6 +108,9 @@ _otp_store = {}
 _otp_lock = threading.Lock()
 _otp_email_last_send = {}
 _otp_ip_sends = {}
+_sync_log_lock = threading.Lock()
+_sync_logs = []
+_sync_logs_max = 500
 
 
 def _session_serializer():
@@ -133,17 +137,44 @@ def _verify_session_cookie():
     if not ser:
         return False
     try:
-        ser.loads(val, max_age=SESSION_MAX_AGE_SECONDS)
-        return True
+        payload = ser.loads(val, max_age=SESSION_MAX_AGE_SECONDS)
+        if isinstance(payload, dict):
+            return bool(payload.get("authenticated"))
+        return False
     except Exception:
         return False
 
 
-def _set_session_cookie(response):
+def _session_data_from_cookie() -> dict:
+    """Return validated session payload dict or empty dict."""
+    if not AUTH_ENABLED:
+        return {}
+    val = request.cookies.get(SESSION_COOKIE_NAME)
+    if not val:
+        return {}
+    ser = _session_serializer()
+    if not ser:
+        return {}
+    try:
+        payload = ser.loads(val, max_age=SESSION_MAX_AGE_SECONDS)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
+
+
+def _current_actor_email() -> str:
+    data = _session_data_from_cookie()
+    return (data.get("email") or "").strip().lower()
+
+
+def _set_session_cookie(response, email: str = ""):
     ser = _session_serializer()
     if not ser:
         return response
-    token = ser.dumps("authenticated")
+    token = ser.dumps({
+        "authenticated": True,
+        "email": (email or "").strip().lower(),
+    })
     response.set_cookie(
         SESSION_COOKIE_NAME,
         value=token,
@@ -154,6 +185,131 @@ def _set_session_cookie(response):
         path="/",
     )
     return response
+
+
+def _sync_log_record(entry: dict) -> None:
+    """
+    Persist sync audit event.
+    Uses PostgreSQL when DATABASE_URL is configured, else in-memory fallback.
+    """
+    now_iso = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
+    row = {
+        "timestamp": now_iso,
+        "actor_email": (entry.get("actor_email") or "").strip().lower() or "unknown",
+        "mode": (entry.get("mode") or "").strip().lower() or "unknown",
+        "status": (entry.get("status") or "").strip().lower() or "unknown",
+        "cvent_event_id": str(entry.get("cvent_event_id") or ""),
+        "cvent_attendee_id": str(entry.get("cvent_attendee_id") or ""),
+        "attendee_name": (entry.get("attendee_name") or "").strip(),
+        "summary": (entry.get("summary") or "").strip(),
+        "error_count": int(entry.get("error_count") or 0),
+        "errors_json": json.dumps(entry.get("errors") or []),
+        "actions_json": json.dumps(entry.get("actions") or []),
+    }
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS sync_audit_logs (
+                            id BIGSERIAL PRIMARY KEY,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            actor_email TEXT NOT NULL,
+                            mode TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            cvent_event_id TEXT,
+                            cvent_attendee_id TEXT,
+                            attendee_name TEXT,
+                            summary TEXT,
+                            error_count INTEGER NOT NULL DEFAULT 0,
+                            errors_json TEXT NOT NULL,
+                            actions_json TEXT NOT NULL
+                        )
+                        """
+                    )
+                    cur.execute(
+                        """
+                        INSERT INTO sync_audit_logs
+                        (actor_email, mode, status, cvent_event_id, cvent_attendee_id, attendee_name, summary, error_count, errors_json, actions_json)
+                        VALUES (%s,%s,%s,%s,%s,%s,%s,%s,%s,%s)
+                        """,
+                        (
+                            row["actor_email"], row["mode"], row["status"], row["cvent_event_id"], row["cvent_attendee_id"],
+                            row["attendee_name"], row["summary"], row["error_count"], row["errors_json"], row["actions_json"],
+                        ),
+                    )
+            return
+        except Exception as e:
+            app.logger.warning("sync_log db write failed, fallback to memory: %s", e)
+    with _sync_log_lock:
+        _sync_logs.insert(0, row)
+        if len(_sync_logs) > _sync_logs_max:
+            del _sync_logs[_sync_logs_max:]
+
+
+def _sync_log_list(limit: int = 50) -> list:
+    limit = max(1, min(int(limit or 50), 200))
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            out = []
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS sync_audit_logs (
+                            id BIGSERIAL PRIMARY KEY,
+                            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                            actor_email TEXT NOT NULL,
+                            mode TEXT NOT NULL,
+                            status TEXT NOT NULL,
+                            cvent_event_id TEXT,
+                            cvent_attendee_id TEXT,
+                            attendee_name TEXT,
+                            summary TEXT,
+                            error_count INTEGER NOT NULL DEFAULT 0,
+                            errors_json TEXT NOT NULL,
+                            actions_json TEXT NOT NULL
+                        )
+                        """
+                    )
+                    cur.execute(
+                        """
+                        SELECT created_at, actor_email, mode, status, cvent_event_id, cvent_attendee_id, attendee_name, summary, error_count, errors_json, actions_json
+                        FROM sync_audit_logs
+                        ORDER BY id DESC
+                        LIMIT %s
+                        """,
+                        (limit,),
+                    )
+                    for r in cur.fetchall():
+                        out.append({
+                            "timestamp": r[0].strftime("%Y-%m-%dT%H:%M:%SZ") if r[0] else "",
+                            "actor_email": r[1] or "unknown",
+                            "mode": r[2] or "unknown",
+                            "status": r[3] or "unknown",
+                            "cvent_event_id": r[4] or "",
+                            "cvent_attendee_id": r[5] or "",
+                            "attendee_name": r[6] or "",
+                            "summary": r[7] or "",
+                            "error_count": int(r[8] or 0),
+                            "errors": json.loads(r[9] or "[]"),
+                            "actions": json.loads(r[10] or "[]"),
+                        })
+            return out
+        except Exception as e:
+            app.logger.warning("sync_log db read failed, fallback to memory: %s", e)
+    with _sync_log_lock:
+        return [
+            {
+                **x,
+                "errors": json.loads(x.get("errors_json") or "[]"),
+                "actions": json.loads(x.get("actions_json") or "[]"),
+            }
+            for x in _sync_logs[:limit]
+        ]
 
 
 def _send_otp_email(to_email: str, code: str) -> None:
@@ -328,7 +484,7 @@ def verify_code():
         del _otp_store[email]
     app.logger.info("auth.verify_code success email=%s", _mask_email_for_logs(email))
     resp = jsonify({"ok": True})
-    return _set_session_cookie(resp)
+    return _set_session_cookie(resp, email=email)
 
 
 @app.route("/api/logout", methods=["POST"])
@@ -351,6 +507,19 @@ def health():
         "app": "dm-cvent",
         "auth_enabled": AUTH_ENABLED,
         "otp_enabled": EMAIL_OTP_ENABLED,
+    })
+
+
+@app.route("/api/sync-logs")
+def sync_logs():
+    limit_raw = request.args.get("limit", "50")
+    try:
+        limit = int(limit_raw)
+    except (TypeError, ValueError):
+        limit = 50
+    return jsonify({
+        "logs": _sync_log_list(limit=limit),
+        "storage": "database" if DATABASE_URL else "memory",
     })
 
 
@@ -3661,32 +3830,56 @@ def hubspot_sync_attendee():
     Sync Cvent attendee to HubSpot. training=True: dry run with report and transaction_steps.
     training=False: run live per transaction (1 then 2 then …).
     """
-    if not HUBSPOT_TOKEN:
-        return jsonify({"error": "HubSpot token (CustomCode) not configured in .env"}), 500
     data = request.get_json() or {}
     training = data.get("training", True)
+    actor_email = _current_actor_email() or "unknown"
     cvent_attendee_id = (data.get("cvent_attendee_id") or "").strip()
     cvent_event_id = (data.get("cvent_event_id") or "").strip()
+
+    def _log_sync(status: str, attendee_name: str = "", summary: str = "", errors: list = None, actions: list = None):
+        _sync_log_record({
+            "actor_email": actor_email,
+            "mode": "training" if training else "live",
+            "status": status,
+            "cvent_event_id": cvent_event_id,
+            "cvent_attendee_id": cvent_attendee_id,
+            "attendee_name": attendee_name,
+            "summary": summary,
+            "error_count": len(errors or []),
+            "errors": errors or [],
+            "actions": actions or [],
+        })
+
+    if not HUBSPOT_TOKEN:
+        err = "HubSpot token (CustomCode) not configured in .env"
+        _log_sync("failed", summary=err, errors=[err], actions=[])
+        return jsonify({"error": err}), 500
     quantity_item_product_mappings = data.get("quantity_item_product_mappings") or {}
     if not isinstance(quantity_item_product_mappings, dict):
         quantity_item_product_mappings = {}
     if not cvent_attendee_id or not cvent_event_id:
-        return jsonify({"error": "cvent_attendee_id and cvent_event_id are required"}), 400
+        err = "cvent_attendee_id and cvent_event_id are required"
+        _log_sync("failed", summary=err, errors=[err], actions=[])
+        return jsonify({"error": err}), 400
 
     try:
         token = fetch_cvent_token()
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        err = str(e)
+        _log_sync("failed", summary=f"Cvent token failed: {err}", errors=[err], actions=[])
+        return jsonify({"error": err}), 500
 
     attendee = lookup_attendee_cvent(cvent_event_id, cvent_attendee_id, token)
     if attendee.get("attendee_exists") != "Yes":
-        return jsonify({"error": "Attendee not found in Cvent"}), 404
+        err = "Attendee not found in Cvent"
+        _log_sync("failed", attendee_name=attendee.get("attendee_name", ""), summary=err, errors=[err], actions=[])
+        return jsonify({"error": err}), 404
 
     email = (attendee.get("email") or "").strip()
     if not email:
-        return jsonify({
-            "error": "Attendee has no email address - cannot search/create HubSpot contact",
-        }), 400
+        err = "Attendee has no email address - cannot search/create HubSpot contact"
+        _log_sync("failed", attendee_name=attendee.get("attendee_name", ""), summary=err, errors=[err], actions=[])
+        return jsonify({"error": err}), 400
 
     order = fetch_order_data(cvent_event_id, cvent_attendee_id)
     first_name = (attendee.get("first_name") or "").strip()
@@ -4043,6 +4236,13 @@ def hubspot_sync_attendee():
             step_date = user_journey[k - 1].get("created", "") if k <= len(user_journey) else ""
             transaction_steps.append({"step": k, "date": step_date, "report": step_report})
         report["transaction_steps"] = transaction_steps
+        _log_sync(
+            "training",
+            attendee_name=report.get("attendee_name", ""),
+            summary=f"Training sync preview generated ({len(transaction_steps)} transaction step(s)).",
+            errors=[],
+            actions=report.get("actions", []),
+        )
         return jsonify(report)
 
     all_actions = []
@@ -4213,7 +4413,21 @@ def hubspot_sync_attendee():
     }
 
     if all_errors:
+        _log_sync(
+            "partial",
+            attendee_name=report.get("attendee_name", ""),
+            summary=f"Live sync completed with {len(all_errors)} error(s).",
+            errors=all_errors,
+            actions=all_actions,
+        )
         return jsonify({**report, "error": "; ".join(all_errors)}), 207
+    _log_sync(
+        "success",
+        attendee_name=report.get("attendee_name", ""),
+        summary=f"Live sync succeeded across {len(step_results)} transaction step(s).",
+        errors=[],
+        actions=all_actions,
+    )
     return jsonify(report)
 
 

@@ -47,6 +47,7 @@ Email login (OTP) - required if you want protected access:
 - `SMTP_PASSWORD` - SMTP password / API key
 - `EMAIL_FROM` - sender email address
 - `ALLOWED_EMAILS` - optional comma-separated allow-list (for example `a@x.com,b@y.com`)
+- `DATABASE_URL` - optional but recommended for persistent sync audit logs (Railway Postgres)
 
 Auth behavior:
 
@@ -62,6 +63,10 @@ Auth behavior:
   - `auth.send_code success|failed|rate_limited_*`
   - `auth.verify_code success|invalid|expired|missing`
   - Email addresses are logged as SHA-256 hashes (not raw addresses).
+- Sync audit panel:
+  - The main screen shows recent sync activity (mode, status, actor email, attendee/event, summary).
+  - If `DATABASE_URL` is set, logs persist in Postgres across deploys/restarts.
+  - Without `DATABASE_URL`, logs are in-memory only (cleared on restart).
 
 ## Usage
 

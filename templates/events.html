@@ -145,6 +145,15 @@
     .admission-events-cell .map-btn { margin-left: auto; flex-shrink: 0; }
     .admission-events-badges { display: flex; flex-wrap: wrap; gap: 0.25rem; }
     .admission-events-badge { font-size: 0.75rem; padding: 0.2rem 0.5rem; background: rgba(59, 130, 246, 0.2); border-radius: 4px; color: var(--accent); }
+    .sync-log-list { display: flex; flex-direction: column; gap: 0.6rem; }
+    .sync-log-item { border: 1px solid var(--border); border-radius: 8px; padding: 0.6rem 0.75rem; background: rgba(255,255,255,0.02); }
+    .sync-log-top { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; margin-bottom: 0.2rem; }
+    .log-pill { font-size: 0.72rem; border-radius: 999px; padding: 0.1rem 0.45rem; border: 1px solid var(--border); color: var(--text-muted); }
+    .log-pill.success { color: #22c55e; border-color: rgba(34,197,94,0.5); }
+    .log-pill.partial { color: #f59e0b; border-color: rgba(245,158,11,0.5); }
+    .log-pill.failed { color: #ef4444; border-color: rgba(239,68,68,0.5); }
+    .sync-log-summary { font-size: 0.85rem; color: var(--text); }
+    .sync-log-meta { font-size: 0.78rem; color: var(--text-muted); margin-top: 0.2rem; }
   </style>
 </head>
 <body>
@@ -162,6 +171,10 @@
         <h2>Events</h2>
         <input type="text" id="event-search" placeholder="Search events by name..." style="width:100%;max-width:400px;padding:0.6rem 0.8rem;margin-bottom:1rem;font-size:0.95rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);">
         <div id="events-content"></div>
+      </div>
+      <div class="card">
+        <h2>Recent sync activity</h2>
+        <div id="sync-log-content"><span class="loading"></span>Loading activity...</div>
       </div>
     </div>
 
@@ -223,6 +236,7 @@
     const selectedEventName = document.getElementById('selected-event-name');
     const attendeeDetailContent = document.getElementById('attendee-detail-content');
     const orderDetailContent = document.getElementById('order-detail-content');
+    const syncLogContent = document.getElementById('sync-log-content');
 
     eventsEl.innerHTML = '<span class="loading"></span>Loading events...';
 
@@ -238,6 +252,49 @@
       const m = mode === 'live' ? 'live' : 'training';
       if (trainingRadio) trainingRadio.checked = m === 'training';
       if (liveRadio) liveRadio.checked = m === 'live';
+    }
+
+    function formatLogDateTime(iso) {
+      if (!iso) return '—';
+      const d = new Date(iso);
+      if (Number.isNaN(d.getTime())) return String(iso);
+      return d.toLocaleString();
+    }
+
+    async function loadSyncLogs() {
+      if (!syncLogContent) return;
+      syncLogContent.innerHTML = '<span class="loading"></span>Loading activity...';
+      try {
+        const r = await fetch('/api/sync-logs?limit=30');
+        const data = r.ok ? await r.json() : { logs: [], error: await r.text() };
+        const logs = Array.isArray(data.logs) ? data.logs : [];
+        if (!logs.length) {
+          syncLogContent.innerHTML = '<span class="value empty">No sync activity yet.</span>';
+          return;
+        }
+        let html = '<div class="sync-log-list">';
+        logs.forEach((l) => {
+          const status = String(l.status || 'unknown').toLowerCase();
+          const mode = String(l.mode || 'unknown').toLowerCase();
+          const summary = l.summary || 'Sync activity';
+          const when = formatLogDateTime(l.timestamp);
+          const actor = l.actor_email || 'unknown';
+          const attendee = l.attendee_name || l.cvent_attendee_id || '—';
+          const evt = l.cvent_event_id || '—';
+          html += `<div class="sync-log-item">`;
+          html += `<div class="sync-log-top"><span class="log-pill ${escapeHtml(status)}">${escapeHtml(status)}</span><span class="log-pill">${escapeHtml(mode)}</span></div>`;
+          html += `<div class="sync-log-summary">${escapeHtml(summary)}</div>`;
+          html += `<div class="sync-log-meta">By ${escapeHtml(actor)} · ${escapeHtml(when)} · Attendee: ${escapeHtml(attendee)} · Event: ${escapeHtml(evt)}</div>`;
+          if (Array.isArray(l.errors) && l.errors.length) {
+            html += `<div class="sync-log-meta" style="color:#fca5a5;">Errors: ${escapeHtml(l.errors.slice(0, 2).join(' | '))}</div>`;
+          }
+          html += `</div>`;
+        });
+        html += '</div>';
+        syncLogContent.innerHTML = html;
+      } catch (err) {
+        syncLogContent.innerHTML = `<div class="error-msg">${escapeHtml(err.message || 'Failed to load sync logs')}</div>`;
+      }
     }
 
     function computeSetupStatus(eventId, admissionItems, regQuestions, quantityItems) {
@@ -820,6 +877,7 @@
       .catch(err => {
         eventsEl.innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;
       });
+    loadSyncLogs();
 
     function loadSetup(eventId, eventName) {
       currentEventId = eventId;
@@ -1270,6 +1328,7 @@
           runBtn.disabled = false;
           runBtn.textContent = runBtnOriginalText || 'Run sync';
         }
+        loadSyncLogs();
       }
     }
 

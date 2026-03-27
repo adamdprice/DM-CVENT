@@ -7,6 +7,7 @@ import os
 import json
 import time
 import threading
+import hashlib
 import requests
 from typing import Optional
 from flask import Flask, render_template, request, jsonify, redirect
@@ -112,6 +113,14 @@ def _session_serializer():
     if not SESSION_SECRET:
         return None
     return URLSafeTimedSerializer(SESSION_SECRET, salt="dm-cvent-login")
+
+
+def _mask_email_for_logs(email: str) -> str:
+    """Log-safe email reference (never logs raw address)."""
+    if not email:
+        return "unknown"
+    digest = hashlib.sha256(email.strip().lower().encode("utf-8")).hexdigest()
+    return f"sha256:{digest[:12]}"
 
 
 def _verify_session_cookie():
@@ -221,7 +230,15 @@ def _require_auth():
     if not AUTH_ENABLED:
         return None
     path = request.path.rstrip("/") or "/"
-    if path in ("/login", "/api/auth/methods", "/api/auth/send-code", "/api/auth/verify-code", "/api/logout"):
+    if path in (
+        "/login",
+        "/api/auth/methods",
+        "/api/auth/send-code",
+        "/api/auth/verify-code",
+        "/api/logout",
+        "/api/health",
+        "/api/ping",
+    ):
         return None
     if path.startswith("/static/"):
         return None
@@ -255,17 +272,20 @@ def send_code():
     if not email or "@" not in email:
         return jsonify({"error": "Valid email required"}), 400
     if ALLOWED_EMAILS and email not in ALLOWED_EMAILS:
+        app.logger.warning("auth.send_code blocked email=%s", _mask_email_for_logs(email))
         return jsonify({"error": "This email is not allowed to sign in"}), 403
     now = time.time()
     with _otp_lock:
         last = _otp_email_last_send.get(email, 0)
         if now - last < OTP_RATE_EMAIL_SECONDS:
+            app.logger.warning("auth.send_code rate_limited_email email=%s", _mask_email_for_logs(email))
             return jsonify({"error": "Please wait a few minutes before requesting another code"}), 429
         ip = request.remote_addr or "unknown"
         window_start = now - OTP_RATE_IP_WINDOW
         _otp_ip_sends.setdefault(ip, [])
         _otp_ip_sends[ip] = [t for t in _otp_ip_sends[ip] if t > window_start]
         if len(_otp_ip_sends[ip]) >= OTP_RATE_IP_MAX:
+            app.logger.warning("auth.send_code rate_limited_ip ip=%s", ip)
             return jsonify({"error": "Too many requests; try again later"}), 429
         _otp_ip_sends[ip].append(now)
         import random
@@ -274,9 +294,11 @@ def send_code():
         _otp_email_last_send[email] = now
     try:
         _send_otp_email(email, code)
+        app.logger.info("auth.send_code success email=%s", _mask_email_for_logs(email))
     except Exception as e:
         with _otp_lock:
             _otp_store.pop(email, None)
+        app.logger.error("auth.send_code failed email=%s error=%s", _mask_email_for_logs(email), str(e))
         return jsonify({"error": str(e) or "Failed to send email; try again later"}), 500
     return jsonify({"ok": True, "message": "Check your email for the code"})
 
@@ -294,13 +316,17 @@ def verify_code():
     with _otp_lock:
         entry = _otp_store.get(email)
         if not entry:
+            app.logger.warning("auth.verify_code missing email=%s", _mask_email_for_logs(email))
             return jsonify({"error": "Invalid or expired code"}), 401
         if now > entry["expires_at"]:
             del _otp_store[email]
+            app.logger.warning("auth.verify_code expired email=%s", _mask_email_for_logs(email))
             return jsonify({"error": "Code has expired; request a new one"}), 401
         if entry["code"] != code:
+            app.logger.warning("auth.verify_code invalid email=%s", _mask_email_for_logs(email))
             return jsonify({"error": "Invalid code"}), 401
         del _otp_store[email]
+    app.logger.info("auth.verify_code success email=%s", _mask_email_for_logs(email))
     resp = jsonify({"ok": True})
     return _set_session_cookie(resp)
 
@@ -316,6 +342,16 @@ def logout():
 @app.route("/ping")
 def ping():
     return jsonify({"ping": "pong", "app": "dm-cvent"})
+
+
+@app.route("/api/health")
+def health():
+    return jsonify({
+        "status": "ok",
+        "app": "dm-cvent",
+        "auth_enabled": AUTH_ENABLED,
+        "otp_enabled": EMAIL_OTP_ENABLED,
+    })
 
 
 def _get_speaker_event_answer(attendee: dict) -> str:

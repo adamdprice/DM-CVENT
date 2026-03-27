@@ -53,6 +53,16 @@ Auth behavior:
 - If `SESSION_SECRET`, `SMTP_HOST`, and `EMAIL_FROM` are all set, login is enabled and users must sign in via email code.
 - If not set, the app behaves as open access (no login wall), which is convenient for local development.
 
+### Recommended Railway Hardening
+
+- Set Railway healthcheck path to `/api/health`.
+- Keep `ALLOWED_EMAILS` restricted to your team only.
+- Rotate `SESSION_SECRET` and SMTP/API credentials periodically.
+- Check Railway logs for auth events:
+  - `auth.send_code success|failed|rate_limited_*`
+  - `auth.verify_code success|invalid|expired|missing`
+  - Email addresses are logged as SHA-256 hashes (not raw addresses).
+
 ## Usage
 
 1. Enter a **Cvent Attendee ID** (required).

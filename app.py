@@ -3722,6 +3722,8 @@ def _execute_sync_step(
     festival_associations: list,
     sponsor_associations: list,
     deal_plan: list,
+    existing_contact_id: str = None,
+    existing_attendee_id: str = None,
 ) -> dict:
     """
     Execute one sync step: ensure contact and attendee exist, update attendee props,
@@ -3742,28 +3744,31 @@ def _execute_sync_step(
         return result
 
     # 1. Contact
-    contact = _hubspot_search_contact_by_email(email)
-    if contact:
-        result["contact_id"] = str(contact.get("id", ""))
-        result["actions"].append("Contact found in HubSpot")
+    if existing_contact_id:
+        result["contact_id"] = str(existing_contact_id)
+        result["actions"].append("Reusing contact from earlier transaction step")
     else:
-        created = _hubspot_create_contact({
-            "email": email,
-            "firstname": first_name or "",
-            "lastname": last_name or "",
-        })
-        if not created or not created.get("id"):
-            result["errors"].append("Failed to create HubSpot contact")
-            return result
-        result["contact_id"] = str(created["id"])
-        result["created_contact"] = True
-        result["actions"].append("Created HubSpot contact")
+        contact = _hubspot_search_contact_by_email(email)
+        if contact:
+            result["contact_id"] = str(contact.get("id", ""))
+            result["actions"].append("Contact found in HubSpot")
+        else:
+            created = _hubspot_create_contact({
+                "email": email,
+                "firstname": first_name or "",
+                "lastname": last_name or "",
+            })
+            if not created or not created.get("id"):
+                result["errors"].append("Failed to create HubSpot contact")
+                return result
+            result["contact_id"] = str(created["id"])
+            result["created_contact"] = True
+            result["actions"].append("Created HubSpot contact")
 
     # 2. Attendee
-    attendee_rec = _hubspot_search_attendee_by_cvent_id(cvent_attendee_id)
-    if attendee_rec:
-        result["attendee_id"] = str(attendee_rec.get("id", ""))
-        result["actions"].append("Attendee record found in HubSpot")
+    if existing_attendee_id:
+        result["attendee_id"] = str(existing_attendee_id)
+        result["actions"].append("Reusing attendee record from earlier transaction step")
         if attendee_properties and result["attendee_id"]:
             ok, err = _hubspot_update_attendee_with_error(result["attendee_id"], attendee_properties)
             if ok:
@@ -3771,24 +3776,35 @@ def _execute_sync_step(
             else:
                 result["errors"].append(err or "Failed to update attendee properties")
     else:
-        props = dict(attendee_properties) if attendee_properties else {}
-        props["cvent_attendee_id"] = cvent_attendee_id
-        if not props.get("attendee_name") and (first_name or last_name or email):
-            props["attendee_name"] = f"{first_name} {last_name}".strip() or email
-        created, create_err = _hubspot_create_attendee_with_error(props)
-        if not created or not created.get("id"):
-            result["errors"].append(create_err or "Failed to create HubSpot attendee")
-            return result
-        result["attendee_id"] = str(created["id"])
-        result["created_attendee"] = True
-        result["actions"].append("Created HubSpot attendee")
-        if result["contact_id"]:
-            _hubspot_put_association(
-                "contacts", result["contact_id"],
-                HUBSPOT_ATTENDEE_OBJECT, result["attendee_id"],
-                association_type_id=None,
-            )
-            result["actions"].append("Associated contact to attendee")
+        attendee_rec = _hubspot_search_attendee_by_cvent_id(cvent_attendee_id)
+        if attendee_rec:
+            result["attendee_id"] = str(attendee_rec.get("id", ""))
+            result["actions"].append("Attendee record found in HubSpot")
+            if attendee_properties and result["attendee_id"]:
+                ok, err = _hubspot_update_attendee_with_error(result["attendee_id"], attendee_properties)
+                if ok:
+                    result["actions"].append("Updated attendee properties")
+                else:
+                    result["errors"].append(err or "Failed to update attendee properties")
+        else:
+            props = dict(attendee_properties) if attendee_properties else {}
+            props["cvent_attendee_id"] = cvent_attendee_id
+            if not props.get("attendee_name") and (first_name or last_name or email):
+                props["attendee_name"] = f"{first_name} {last_name}".strip() or email
+            created, create_err = _hubspot_create_attendee_with_error(props)
+            if not created or not created.get("id"):
+                result["errors"].append(create_err or "Failed to create HubSpot attendee")
+                return result
+            result["attendee_id"] = str(created["id"])
+            result["created_attendee"] = True
+            result["actions"].append("Created HubSpot attendee")
+            if result["contact_id"]:
+                _hubspot_put_association(
+                    "contacts", result["contact_id"],
+                    HUBSPOT_ATTENDEE_OBJECT, result["attendee_id"],
+                    association_type_id=None,
+                )
+                result["actions"].append("Associated contact to attendee")
 
     if not result["attendee_id"]:
         return result
@@ -4507,6 +4523,8 @@ def hubspot_sync_attendee():
             festival_associations=festival_associations_step,
             sponsor_associations=sponsor_associations_step,
             deal_plan=deal_plan_k,
+            existing_contact_id=contact_id,
+            existing_attendee_id=attendee_id,
         )
         step_date = user_journey[k - 1].get("created", "") if k <= len(user_journey) else ""
         step_results.append({

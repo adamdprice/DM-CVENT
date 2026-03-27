@@ -2672,10 +2672,15 @@ def _resolve_association_label_and_events(
 
     # Base label from attendee type only (we do not use registration path).
     # Paying Delegate only for the explicit PAYING_DELEGATE_TYPES list.
+    reg_type_lc = reg_type.lower()
     if reg_type in PAYING_DELEGATE_TYPES:
         base_label = (ASSOC_LABEL_PAYING_DELEGATE, "Paying Delegate")
     elif reg_type in DEALMAKERS_GUEST_TYPES:
         base_label = (ASSOC_LABEL_DEALMAKERS_GUEST, "Dealmakers Guest")
+    elif ("sponsor" in reg_type_lc and "executive" in reg_type_lc) or reg_type_lc in {"sponsor exec"}:
+        base_label = (ASSOC_LABEL_SPONSOR_EXECUTIVE, "Sponsor Executive")
+    elif ("sponsor" in reg_type_lc and "client" in reg_type_lc):
+        base_label = (ASSOC_LABEL_SPONSOR_CLIENT, "Sponsor Client")
     elif "Speaker Path" in reg_type and "Internal" in reg_type:
         base_label = (ASSOC_LABEL_SPEAKER_SPONSOR, "Speaker - Sponsor")
     elif "Speaker" in reg_type and "Non Sponsor" in reg_type:

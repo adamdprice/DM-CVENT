@@ -3218,6 +3218,25 @@ def _hubspot_get_object_associations(from_type: str, from_id: str, to_type: str)
         return []
 
 
+def _hubspot_primary_company_for_contact(contact_id: str) -> str:
+    """
+    Resolve one associated company for a contact (first association found).
+    Returns company object ID string or "".
+    """
+    if not contact_id:
+        return ""
+    assocs = _hubspot_get_object_associations("contacts", contact_id, "companies")
+    if not assocs:
+        return ""
+    seen = set()
+    for a in assocs:
+        cid = str(a.get("to_id") or "").strip()
+        if cid and cid not in seen:
+            seen.add(cid)
+            return cid
+    return ""
+
+
 def _hubspot_create_deal(properties: dict) -> dict:
     """Create a HubSpot deal. Returns created object or empty dict on failure."""
     if not HUBSPOT_TOKEN or not properties:
@@ -3551,6 +3570,7 @@ def _execute_sync_step(
     # 6. Deals
     if (not result["contact_id"] and not result["attendee_id"]) or not deal_plan:
         return result
+    company_id_for_contact = _hubspot_primary_company_for_contact(result["contact_id"]) if result["contact_id"] else ""
     contact_deals = _hubspot_search_deals_for_contact(result["contact_id"])
     for item in deal_plan:
         action = item.get("action", "create")
@@ -3586,6 +3606,11 @@ def _execute_sync_step(
                         result["actions"].append(f"Associated deal to event {event_name or event_id}")
                     else:
                         result["errors"].append(f"Failed to associate deal to event {event_name or event_id}")
+                if company_id_for_contact:
+                    if _hubspot_put_association("deals", str(existing["id"]), "companies", company_id_for_contact, association_type_id=None):
+                        result["actions"].append("Associated deal to contact company")
+                    else:
+                        result["errors"].append("Failed to associate deal to contact company")
                 # Ensure product association for quantity deals, if provided.
                 if product_id:
                     if _hubspot_put_association("deals", str(existing["id"]), "products", product_id, association_type_id=None):
@@ -3617,6 +3642,11 @@ def _execute_sync_step(
                 result["actions"].append(f"Associated deal to event {event_name or event_id}")
             else:
                 result["errors"].append(f"Failed to associate deal to event {event_name or event_id}")
+        if company_id_for_contact:
+            if _hubspot_put_association("deals", deal_id, "companies", company_id_for_contact, association_type_id=None):
+                result["actions"].append("Associated deal to contact company")
+            else:
+                result["errors"].append("Failed to associate deal to contact company")
         if product_id:
             if _hubspot_put_association("deals", deal_id, "products", product_id, association_type_id=None):
                 result["actions"].append(f"Associated deal to product {product_id}")

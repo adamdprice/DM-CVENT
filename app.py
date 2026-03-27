@@ -165,6 +165,31 @@ This code will expire in 15 minutes.
 
 If you didn't request this sign-in code, you can safely ignore this email.
 """
+    # Prefer SendGrid HTTP API when configured. This avoids SMTP socket/network issues.
+    if SMTP_HOST and "sendgrid" in SMTP_HOST.lower() and SMTP_PASSWORD:
+        payload = {
+            "personalizations": [{"to": [{"email": to_email}]}],
+            "from": {"email": EMAIL_FROM},
+            "subject": subject,
+            "content": [{"type": "text/plain", "value": body}],
+        }
+        try:
+            r = requests.post(
+                "https://api.sendgrid.com/v3/mail/send",
+                headers={
+                    "Authorization": f"Bearer {SMTP_PASSWORD}",
+                    "Content-Type": "application/json",
+                },
+                json=payload,
+                timeout=15,
+            )
+            if r.status_code in (200, 201, 202):
+                return
+            detail = r.text[:500] if r.text else f"status {r.status_code}"
+            raise RuntimeError(f"SendGrid API send failed: {detail}")
+        except requests.RequestException as e:
+            raise RuntimeError(f"SendGrid API request failed: {str(e)}") from e
+
     msg = MIMEMultipart("alternative")
     msg["Subject"] = subject
     msg["From"] = EMAIL_FROM

@@ -3308,10 +3308,10 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
     """
     from datetime import datetime, timezone
 
-    def _to_hubspot_datetime_ms(raw_val):
+    def _to_hubspot_date_ms(raw_val):
         """
-        Convert Cvent date/time values into HubSpot datetime long (epoch ms).
-        Supports ISO datetime and MM/DD/YYYY date strings.
+        Convert Cvent date/time values into HubSpot date long (epoch ms at midnight UTC).
+        HubSpot date properties reject non-midnight timestamps.
         """
         if not raw_val:
             return None
@@ -3321,9 +3321,10 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
         try:
             # ISO datetime from Cvent, e.g. 2026-03-16T10:23:00Z
             dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
-            if dt.tzinfo is None:
-                dt = dt.replace(tzinfo=timezone.utc)
-            return int(dt.timestamp() * 1000)
+            if dt.tzinfo is not None:
+                dt = dt.astimezone(timezone.utc)
+            y, m, d = dt.year, dt.month, dt.day
+            return int(datetime(y, m, d, 0, 0, 0, tzinfo=timezone.utc).timestamp() * 1000)
         except Exception:
             pass
         try:
@@ -3340,7 +3341,7 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
     attendee_name = f"{first} {last}".strip() or email or cvent_id
 
     reg_date_raw = attendee.get("registered_at") or ""
-    cvent_reg_date = _to_hubspot_datetime_ms(reg_date_raw)
+    cvent_reg_date = _to_hubspot_date_ms(reg_date_raw)
 
     amount_due_raw = (order.get("amount_due") or "").strip()
     cvent_amount_due = None

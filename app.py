@@ -3301,15 +3301,30 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
     Returns dict of property name -> value (excluding empty/null).
     If admission_item_override is set (e.g. per-transaction admission item), use it for cvent_admission_item.
     """
-    from datetime import datetime
+    from datetime import datetime, timezone
 
-    def _us_date(iso_str):
-        if not iso_str:
+    def _to_hubspot_datetime_ms(raw_val):
+        """
+        Convert Cvent date/time values into HubSpot datetime long (epoch ms).
+        Supports ISO datetime and MM/DD/YYYY date strings.
+        """
+        if not raw_val:
+            return None
+        s = str(raw_val).strip()
+        if not s:
             return None
         try:
-            s = str(iso_str).replace("Z", "+00:00")
-            d = datetime.fromisoformat(s)
-            return f"{d.month:02d}/{d.day:02d}/{d.year}"
+            # ISO datetime from Cvent, e.g. 2026-03-16T10:23:00Z
+            dt = datetime.fromisoformat(s.replace("Z", "+00:00"))
+            if dt.tzinfo is None:
+                dt = dt.replace(tzinfo=timezone.utc)
+            return int(dt.timestamp() * 1000)
+        except Exception:
+            pass
+        try:
+            # Date-only fallback, e.g. 03/16/2026
+            dt = datetime.strptime(s, "%m/%d/%Y").replace(tzinfo=timezone.utc)
+            return int(dt.timestamp() * 1000)
         except Exception:
             return None
 
@@ -3320,9 +3335,7 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
     attendee_name = f"{first} {last}".strip() or email or cvent_id
 
     reg_date_raw = attendee.get("registered_at") or ""
-    cvent_reg_date = _us_date(reg_date_raw)
-    if not cvent_reg_date and reg_date_raw:
-        cvent_reg_date = reg_date_raw[:10] if len(reg_date_raw) >= 10 else reg_date_raw
+    cvent_reg_date = _to_hubspot_datetime_ms(reg_date_raw)
 
     amount_due_raw = (order.get("amount_due") or "").strip()
     cvent_amount_due = None

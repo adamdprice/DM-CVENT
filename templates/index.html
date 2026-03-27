@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DM Cvent Integration - Attendee Lookup</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --surface-hover: #243044;
+      --border: #2d3a4d;
+      --text: #e6edf3;
+      --text-muted: #8b9cb3;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --success: #22c55e;
+      --error: #ef4444;
+      --radius: 10px;
+    }
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'DM Sans', -apple-system, BlinkMacSystemFont, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      min-height: 100vh;
+      padding: 2rem;
+      line-height: 1.5;
+    }
+
+    .container {
+      max-width: 720px;
+      margin: 0 auto;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 600;
+      margin: 0 0 0.5rem;
+      letter-spacing: -0.02em;
+    }
+
+    .subtitle {
+      color: var(--text-muted);
+      font-size: 0.95rem;
+      margin-bottom: 2rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 1.5rem;
+      margin-bottom: 1.5rem;
+    }
+
+    .card h2 {
+      font-size: 1rem;
+      font-weight: 600;
+      margin: 0 0 1rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+
+    .form-row {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: flex-end;
+    }
+
+    .field {
+      flex: 1;
+      min-width: 200px;
+    }
+
+    .field label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 500;
+      margin-bottom: 0.4rem;
+      color: var(--text-muted);
+    }
+
+    input[type="text"] {
+      width: 100%;
+      padding: 0.65rem 1rem;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.95rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      color: var(--text);
+      transition: border-color 0.15s;
+    }
+
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    input[type="text"]::placeholder {
+      color: var(--text-muted);
+      opacity: 0.7;
+    }
+
+    .field-hint {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      margin-top: 0.35rem;
+    }
+
+    button {
+      padding: 0.65rem 1.25rem;
+      font-family: inherit;
+      font-size: 0.95rem;
+      font-weight: 600;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+      white-space: nowrap;
+    }
+
+    button:hover {
+      background: var(--accent-hover);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: not-allowed;
+    }
+
+    .results {
+      display: none;
+    }
+
+    .results.visible {
+      display: block;
+    }
+
+    .result-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 1rem;
+    }
+
+    .result-item {
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+    }
+
+    .result-item .label {
+      font-size: 0.8rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.03em;
+    }
+
+    .result-item .value {
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.9rem;
+      word-break: break-all;
+    }
+
+    .result-item .value.empty {
+      color: var(--text-muted);
+      font-style: italic;
+    }
+
+    .badge {
+      display: inline-block;
+      padding: 0.2rem 0.5rem;
+      font-size: 0.75rem;
+      font-weight: 600;
+      border-radius: 4px;
+    }
+
+    .badge.yes {
+      background: rgba(34, 197, 94, 0.2);
+      color: var(--success);
+    }
+
+    .badge.no {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--error);
+    }
+
+    .error-msg {
+      background: rgba(239, 68, 68, 0.2);
+      color: var(--error);
+      padding: 0.75rem 1rem;
+      border-radius: 6px;
+      font-size: 0.9rem;
+      margin-top: 0.5rem;
+    }
+
+    .json-block {
+      margin-top: 1rem;
+      padding: 1rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      font-family: 'JetBrains Mono', monospace;
+      font-size: 0.8rem;
+      max-height: 200px;
+      overflow: auto;
+      white-space: pre-wrap;
+      word-break: break-all;
+    }
+
+    .loading {
+      display: inline-block;
+      width: 1rem;
+      height: 1rem;
+      border: 2px solid rgba(255,255,255,0.3);
+      border-top-color: white;
+      border-radius: 50%;
+      animation: spin 0.6s linear infinite;
+      vertical-align: middle;
+      margin-right: 0.5rem;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>DM Cvent Integration</h1>
+    <p class="subtitle">Look up attendee information and order data from Cvent. <a href="/events" style="color:var(--accent)">List events</a></p>
+
+    <div class="card">
+      <h2>Lookup</h2>
+      <form id="lookup-form">
+        <div class="form-row">
+          <div class="field">
+            <label for="cvent_attendee_id">Cvent Attendee ID</label>
+            <input type="text" id="cvent_attendee_id" name="cvent_attendee_id" placeholder="e.g. abc123-def456" required>
+            <div class="field-hint">Required. Enter the attendee ID from Cvent.</div>
+          </div>
+          <div class="field">
+            <label for="cvent_event_id">Event ID</label>
+            <input type="text" id="cvent_event_id" name="cvent_event_id" placeholder="e.g. abc123-def456" required>
+            <div class="field-hint">Required. Enter the event ID from Cvent.</div>
+          </div>
+          <div class="field">
+            <button type="submit" id="submit-btn">Lookup</button>
+          </div>
+        </div>
+      </form>
+    </div>
+
+    <div id="results" class="results">
+      <div class="card">
+        <h2 id="attendee-card-title">Attendee Results</h2>
+        <div id="attendee-results"></div>
+      </div>
+
+      <div class="card">
+        <h2>Order Results</h2>
+        <div id="order-results"></div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const form = document.getElementById('lookup-form');
+    const submitBtn = document.getElementById('submit-btn');
+    const resultsEl = document.getElementById('results');
+    const attendeeResultsEl = document.getElementById('attendee-results');
+    const orderResultsEl = document.getElementById('order-results');
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      submitBtn.disabled = true;
+      submitBtn.innerHTML = '<span class="loading"></span>Looking up...';
+      resultsEl.classList.remove('visible');
+
+      const cvent_attendee_id = document.getElementById('cvent_attendee_id').value.trim();
+      const cvent_event_id = document.getElementById('cvent_event_id').value.trim();
+
+      try {
+        const res = await fetch('/api/lookup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cvent_attendee_id, cvent_event_id })
+        });
+
+        const text = await res.text();
+        let data;
+        try {
+          data = text ? JSON.parse(text) : {};
+        } catch {
+          throw new Error(res.ok ? 'Invalid response from server' : `Server error (${res.status}). The server may have returned HTML instead of JSON.`);
+        }
+        if (!res.ok) {
+          throw new Error(data.error || 'Lookup failed');
+        }
+
+        renderAttendeeResults(data.attendee, cvent_event_id, data.hubspot_attendee || {});
+        renderOrderResults(data.order);
+        resultsEl.classList.add('visible');
+      } catch (err) {
+        attendeeResultsEl.innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;
+        orderResultsEl.innerHTML = '';
+        resultsEl.classList.add('visible');
+      } finally {
+        submitBtn.disabled = false;
+        submitBtn.textContent = 'Lookup';
+      }
+    });
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    function renderValue(val, isEmpty) {
+      if (val === undefined || val === null || val === '') return '<span class="value empty">—</span>';
+      return `<span class="value">${escapeHtml(String(val))}</span>`;
+    }
+
+    function getGlobalQuestionMappings() {
+      try {
+        const raw = localStorage.getItem('cvent_global_question_mappings');
+        return raw ? JSON.parse(raw) : {};
+      } catch { return {}; }
+    }
+
+    function renderAttendeeResults(a, eventId, hubspotAttendee) {
+      const titleEl = document.getElementById('attendee-card-title');
+      if (titleEl) titleEl.textContent = 'Attendee Results';
+
+      const fmtDateTime = (s) => {
+        if (!s) return '—';
+        try {
+          const d = new Date(s);
+          if (isNaN(d.getTime())) return s;
+          const day = String(d.getDate()).padStart(2, '0');
+          const month = String(d.getMonth() + 1).padStart(2, '0');
+          const year = String(d.getFullYear()).slice(-2);
+          const hour = String(d.getHours()).padStart(2, '0');
+          const min = String(d.getMinutes()).padStart(2, '0');
+          return `${day}/${month}/${year} ${hour}:${min}`;
+        } catch { return s; }
+      };
+      const items = [
+        { label: 'Attendee exists', value: a.attendee_exists, badge: true },
+        { label: 'Matching attendee ID', value: a.matching_attendee_id },
+        { label: 'Attendee lookup count', value: a.attendee_lookup_count },
+        { label: 'Attendee name', value: a.attendee_name },
+        { label: 'Attendee type', value: a.registration_type },
+        { label: 'Registration path', value: a.registration_path },
+        { label: 'Admission item', value: a.admission_item },
+        { label: 'Cvent event ID', value: a.cvent_event_id },
+        { label: 'Cvent event code', value: a.cvent_event_code },
+        { label: 'Last updated (Cvent)', value: fmtDateTime(a.last_modified) },
+        { label: 'Created (Cvent)', value: fmtDateTime(a.created) },
+      ];
+
+      let html = '';
+      if (a.attendee_lookup_error) {
+        html += `<div class="error-msg">${escapeHtml(a.attendee_lookup_error)}</div>`;
+      }
+      if (a.debug) {
+        html += `<div class="json-block" style="margin-top:0.5rem;font-size:0.75rem"><strong>Debug:</strong> ${escapeHtml(a.debug)}</div>`;
+      }
+      html += '<div class="result-grid">';
+      items.forEach(({ label, value, badge }) => {
+        html += `<div class="result-item">
+          <span class="label">${escapeHtml(label)}</span>
+          ${badge && (value === 'Yes' || value === 'No')
+            ? `<span class="badge ${value.toLowerCase()}">${escapeHtml(value)}</span>`
+            : renderValue(value)}
+        </div>`;
+      });
+      html += '</div>';
+      if (a.answers && a.answers.length > 0) {
+        const mappings = getGlobalQuestionMappings();
+        html += '<div class="card" style="margin-top:1.5rem;"><h2 style="font-size:0.9rem;margin:0 0 0.75rem;">Registration answers</h2>';
+        html += '<p style="font-size:0.8rem;color:var(--text-muted);margin:0 0 0.5rem;">Map questions to HubSpot properties on the Events page. Values shown from HubSpot when mapped.</p>';
+        html += '<div class="result-grid">';
+        a.answers.forEach(ans => {
+          const qid = ans.question_id || '';
+          const mapKey = eventId && qid ? eventId + ':' + qid : '';
+          const mapping = mapKey ? mappings[mapKey] : null;
+          const qLabel = mapping ? mapping.label : (ans.question_text || qid || 'Question');
+          const displayVal = (mapping && hubspotAttendee && hubspotAttendee[mapping.name] != null && hubspotAttendee[mapping.name] !== '')
+            ? hubspotAttendee[mapping.name] : ans.value;
+          html += `<div class="result-item"><span class="label" title="${escapeHtml(qid || '')}">${escapeHtml(qLabel)}<span style="font-size:0.7rem;color:var(--text-muted);display:block;margin-top:0.15rem;font-family:monospace;">${escapeHtml(qid)}</span></span>${renderValue(displayVal)}</div>`;
+        });
+        html += '</div></div>';
+      }
+      attendeeResultsEl.innerHTML = html;
+    }
+
+    function renderOrderResults(o) {
+      let html = '';
+      if (o.error) {
+        html += `<div class="error-msg">${escapeHtml(o.error)}</div>`;
+      }
+
+      const journey = o.user_journey || [];
+      if (journey.length > 0) {
+        html += '<div style="margin-bottom:1.5rem;"><span class="label">Purchase Journey</span></div>';
+        html += '<div style="display:flex;flex-direction:column;gap:1rem;margin-bottom:1.5rem;">';
+        journey.forEach((ord) => {
+          const amt = ord.amount_paid || ord.amount_ordered || '—';
+          const amtDisplay = amt === '—' ? '—' : '£' + amt;
+          const dateStr = ord.created ? ' · ' + escapeHtml(ord.created) : '';
+          const discountInfo = ord.discount_codes ? ' · Discount: ' + escapeHtml(ord.discount_codes) : '';
+          html += `<div style="padding:1rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;">`;
+          html += `<div style="font-weight:600;margin-bottom:0.5rem;">Order ${ord.order_number}${ord.order_ref ? ' · ' + escapeHtml(ord.order_ref) : ''}${dateStr} · ${escapeHtml(amtDisplay)}${discountInfo}</div>`;
+          html += '<ul style="margin:0;padding-left:1.25rem;font-size:0.9rem;">';
+          (ord.products || []).forEach(p => {
+            const amtStr = p.amount ? ' — £' + escapeHtml(p.amount) : '';
+            html += `<li>${escapeHtml(p.name || '—')} <span style="color:var(--text-muted);font-size:0.8rem;">${escapeHtml(p.type || '')}${amtStr}</span></li>`;
+          });
+          html += '</ul></div>';
+        });
+        html += '</div>';
+      }
+
+      const discountCodes = o.discount_codes || [];
+      const discountDisplay = discountCodes.length > 0
+        ? discountCodes.map(d => d.name ? `${d.code} (${d.name})` : d.code).join(', ')
+        : '—';
+      const items = [
+        { label: 'Order ID', value: o.order_id },
+        { label: 'Order number', value: o.order_number },
+        { label: 'Invoice number', value: o.invoice_number },
+        { label: 'Order type', value: o.order_type },
+        { label: 'Payment method', value: o.payment_method },
+        { label: 'Discount codes used', value: discountDisplay },
+        { label: 'Reference number', value: o.reference_number },
+        { label: 'Cancelled', value: o.cancelled },
+        { label: 'Amount ordered', value: o.amount_ordered },
+        { label: 'Amount paid', value: o.amount_paid },
+        { label: 'Amount due', value: o.amount_due },
+        { label: 'Admission item name', value: o.admission_item_name },
+        { label: 'Admission item amount paid', value: o.admission_item_amount_paid },
+        { label: 'Tax name', value: o.tax_name },
+        { label: 'Tax amount paid', value: o.tax_amount_paid },
+        { label: 'Orders count', value: o.orders_count },
+        { label: 'Order items count', value: o.order_items_count },
+      ];
+      html += '<div class="result-grid">';
+      items.forEach(({ label, value }) => {
+        html += `<div class="result-item">
+          <span class="label">${escapeHtml(label)}</span>
+          ${renderValue(value)}
+        </div>`;
+      });
+      html += '</div>';
+
+      const ordersList = o.orders || [];
+      const itemsList = o.order_items || [];
+      if (ordersList.length > 0 || itemsList.length > 0) {
+        html += '<div style="margin-top:1.5rem;"><span class="label">Transaction Details</span></div>';
+        if (ordersList.length > 0) {
+          const amt = (v) => v ? '£' + v : '—';
+          html += '<div style="margin-top:0.75rem;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.9rem;"><thead><tr><th style="padding:0.5rem;text-align:left;border-bottom:1px solid var(--border);color:var(--text-muted);">Order #</th><th style="padding:0.5rem;text-align:left;border-bottom:1px solid var(--border);color:var(--text-muted);">Invoice</th><th style="padding:0.5rem;text-align:left;border-bottom:1px solid var(--border);color:var(--text-muted);">Date</th><th style="padding:0.5rem;text-align:left;border-bottom:1px solid var(--border);color:var(--text-muted);">Discount code</th><th style="padding:0.5rem;text-align:right;border-bottom:1px solid var(--border);color:var(--text-muted);">Ordered</th><th style="padding:0.5rem;text-align:right;border-bottom:1px solid var(--border);color:var(--text-muted);">Paid</th><th style="padding:0.5rem;text-align:right;border-bottom:1px solid var(--border);color:var(--text-muted);">Due</th><th style="padding:0.5rem;text-align:left;border-bottom:1px solid var(--border);color:var(--text-muted);">Cancelled</th></tr></thead><tbody>';
+          ordersList.forEach(ord => {
+            const cancelled = ord.cancelled ? 'Yes' : 'No';
+            const discount = ord.discount_codes || '—';
+            html += `<tr><td style="padding:0.5rem;border-bottom:1px solid var(--border);font-family:JetBrains Mono,monospace;">${escapeHtml(ord.number || '—')}</td><td style="padding:0.5rem;border-bottom:1px solid var(--border);">${escapeHtml(ord.invoice_number || '—')}</td><td style="padding:0.5rem;border-bottom:1px solid var(--border);">${escapeHtml(ord.created || '—')}</td><td style="padding:0.5rem;border-bottom:1px solid var(--border);">${escapeHtml(discount)}</td><td style="padding:0.5rem;border-bottom:1px solid var(--border);text-align:right;">${escapeHtml(amt(ord.amount_ordered))}</td><td style="padding:0.5rem;border-bottom:1px solid var(--border);text-align:right;">${escapeHtml(amt(ord.amount_paid))}</td><td style="padding:0.5rem;border-bottom:1px solid var(--border);text-align:right;">${escapeHtml(amt(ord.amount_due))}</td><td style="padding:0.5rem;border-bottom:1px solid var(--border);">${cancelled}</td></tr>`;
+          });
+          html += '</tbody></table></div>';
+        }
+        if (itemsList.length > 0) {
+          const amt = (v) => v ? '£' + v : '—';
+          html += '<div style="margin-top:1rem;"><span class="label" style="font-size:0.8rem;">Line items</span></div><div style="margin-top:0.5rem;overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:0.9rem;"><thead><tr><th style="padding:0.5rem;text-align:left;border-bottom:1px solid var(--border);color:var(--text-muted);">Order #</th><th style="padding:0.5rem;text-align:left;border-bottom:1px solid var(--border);color:var(--text-muted);">Product</th><th style="padding:0.5rem;text-align:left;border-bottom:1px solid var(--border);color:var(--text-muted);">Type</th><th style="padding:0.5rem;text-align:center;border-bottom:1px solid var(--border);color:var(--text-muted);">Qty</th><th style="padding:0.5rem;text-align:right;border-bottom:1px solid var(--border);color:var(--text-muted);">Amount paid</th><th style="padding:0.5rem;text-align:right;border-bottom:1px solid var(--border);color:var(--text-muted);">Amount ordered</th></tr></thead><tbody>';
+          itemsList.forEach(it => {
+            html += `<tr><td style="padding:0.5rem;border-bottom:1px solid var(--border);font-family:JetBrains Mono,monospace;">${escapeHtml(it.order_number || '—')}</td><td style="padding:0.5rem;border-bottom:1px solid var(--border);">${escapeHtml(it.name || '—')}</td><td style="padding:0.5rem;border-bottom:1px solid var(--border);color:var(--text-muted);">${escapeHtml(it.product_type || '—')}</td><td style="padding:0.5rem;border-bottom:1px solid var(--border);text-align:center;">${escapeHtml(String(it.quantity ?? '—'))}</td><td style="padding:0.5rem;border-bottom:1px solid var(--border);text-align:right;">${escapeHtml(amt(it.amount_paid))}</td><td style="padding:0.5rem;border-bottom:1px solid var(--border);text-align:right;">${escapeHtml(amt(it.amount_ordered))}</td></tr>`;
+          });
+          html += '</tbody></table></div>';
+        }
+        if (o.orders_json && o.orders_json !== '[]') {
+          html += '<details style="margin-top:1rem;"><summary style="cursor:pointer;color:var(--text-muted);font-size:0.85rem;">Show raw JSON</summary><div class="json-block" style="margin-top:0.5rem;">' + escapeHtml(o.orders_json || '[]') + '</div>';
+          if (o.order_items_json && o.order_items_json !== '[]') html += '<div class="json-block" style="margin-top:0.5rem;">' + escapeHtml(o.order_items_json || '[]') + '</div>';
+          html += '</details>';
+        }
+      }
+      orderResultsEl.innerHTML = html;
+    }
+  </script>
+</body>
+</html>

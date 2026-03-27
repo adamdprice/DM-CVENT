@@ -1,0 +1,960 @@
+{
+  "event_id": "aff9433d-2778-4dae-b917-f3c3858d7731",
+  "attendees": [
+    {
+      "cvent_attendee_id": "5040d5d3-bd4f-4d15-b9f7-7bf2c80e13bf",
+      "attendee_name": "Todd DeLuca",
+      "email": "todd@gmail.com",
+      "registration_type": "Sponsor Executive",
+      "registration_path": "Sponsor Client or Executive Path",
+      "admission_item_id": "edba3040-5a95-401f-90ba-aa51d64b83d2",
+      "base_label": {
+        "id": 111,
+        "name": "Paying Delegate"
+      },
+      "discount_codes_overall": [
+        "TODEXECEU26"
+      ],
+      "speaker_event_answer": "Both Events",
+      "transactions": [
+        {
+          "step": 1,
+          "phantom": false,
+          "created": "16/03/2026 22:18",
+          "amount_ordered": "0",
+          "amount_paid": "0",
+          "discount_codes": "TODEXECEU26 (Todd Sponsor Code - IP+LF)",
+          "admission_item_id": "edba3040-5a95-401f-90ba-aa51d64b83d2",
+          "admission_item_name": "ALL ACCESS TICKET: 3rd Annual LF Dealmakers Europe & 3rd Annual IP Dealmakers Europe",
+          "paid_numeric": 0.0,
+          "base_label": {
+            "id": 111,
+            "name": "Paying Delegate"
+          },
+          "event_associations": [
+            {
+              "event_id": "39987075650",
+              "full_name": "3rd Annual LF Dealmakers Europe",
+              "label_id": 107,
+              "label_name": "Sponsor Executive",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            },
+            {
+              "event_id": "39987199506",
+              "full_name": "3rd Annual IP Dealmakers Europe",
+              "label_id": 107,
+              "label_name": "Sponsor Executive",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            }
+          ],
+          "festival_associations": [
+            {
+              "id": "47447400287",
+              "full_name": "EU26"
+            }
+          ],
+          "sponsor_associations": [
+            {
+              "id": "49878860330",
+              "name": ""
+            }
+          ],
+          "deal": {
+            "deal_conditions_met": false,
+            "deal_conditions": {
+              "is_accepted": true,
+              "has_positive_amount": false,
+              "ref_no_delsale": true
+            },
+            "deal_scenario": "standard",
+            "deal_plan": []
+          },
+          "label_reason": "Registration type not in explicit lists; defaulted to Paying Delegate (Sponsor Executive). EXEC/CLIENT discount code matched sponsor(s). Paid this step: False. Sponsor-linked event IDs: ['39987075650']. Event 3rd Annual LF Dealmakers Europe -> Sponsor (in sponsor-linked set). Event 3rd Annual IP Dealmakers Europe -> Sponsor (in sponsor-linked set). Warnings: Registration type \"Sponsor Executive\" is not in the Paying Delegate list; defaulting to Paying Delegate."
+        }
+      ]
+    },
+    {
+      "cvent_attendee_id": "423885f3-57fc-413f-822f-8f6a5c1f096e",
+      "attendee_name": "Vanessa Bonn",
+      "email": "vaness@bonn.com",
+      "registration_type": "Research Institution/University",
+      "registration_path": "General Attendee Path",
+      "admission_item_id": "b778bd71-299f-45e8-924f-219d4a15229a",
+      "base_label": {
+        "id": 111,
+        "name": "Paying Delegate"
+      },
+      "discount_codes_overall": [],
+      "speaker_event_answer": "",
+      "transactions": [
+        {
+          "step": 1,
+          "phantom": false,
+          "created": "16/03/2026 22:32",
+          "amount_ordered": "2,034",
+          "amount_paid": "2,034",
+          "discount_codes": "",
+          "admission_item_id": "b778bd71-299f-45e8-924f-219d4a15229a",
+          "admission_item_name": "SINGLE EVENT TICKET: 3rd Annual LF Dealmakers Europe",
+          "paid_numeric": 2034.0,
+          "base_label": {
+            "id": 111,
+            "name": "Paying Delegate"
+          },
+          "event_associations": [
+            {
+              "event_id": "39987075650",
+              "full_name": "3rd Annual LF Dealmakers Europe",
+              "label_id": 111,
+              "label_name": "Paying Delegate",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            }
+          ],
+          "festival_associations": [
+            {
+              "id": "47447400287",
+              "full_name": "EU26"
+            }
+          ],
+          "sponsor_associations": [],
+          "deal": {
+            "deal_conditions_met": true,
+            "deal_conditions": {
+              "is_accepted": true,
+              "has_positive_amount": true,
+              "ref_no_delsale": true
+            },
+            "deal_scenario": "standard",
+            "deal_plan": [
+              {
+                "action": "create",
+                "event_name": "3rd Annual LF Dealmakers Europe",
+                "event_id": "39987075650",
+                "amount": 2034.0,
+                "dealname": "Vanessa Bonn - 3rd Annual LF Dealmakers Europe",
+                "properties": {
+                  "dealname": "Vanessa Bonn - 3rd Annual LF Dealmakers Europe",
+                  "pipeline": "726721932",
+                  "dealstage": "1191309199",
+                  "company_name": "Dance City",
+                  "cvent_admission_item": "SINGLE EVENT TICKET: 3rd Annual LF Dealmakers Europe",
+                  "cvent_cancelled": "false",
+                  "cvent_invoice_number": "03162026-####-####",
+                  "amount": 2034.0
+                }
+              }
+            ]
+          },
+          "label_reason": "Base registration type in Paying Delegate list (Research Institution/University)."
+        }
+      ]
+    },
+    {
+      "cvent_attendee_id": "d4c6a7af-50e4-4610-80c4-a401da2a0abe",
+      "attendee_name": "Kathleen Dixon",
+      "email": "kat@bestmom.com",
+      "registration_type": "Speaker - Non Sponsor",
+      "registration_path": "Speaker Path - Internal",
+      "admission_item_id": "edba3040-5a95-401f-90ba-aa51d64b83d2",
+      "base_label": {
+        "id": 113,
+        "name": "Speaker - Non Sponsor"
+      },
+      "discount_codes_overall": [
+        "LFSPEAKER"
+      ],
+      "speaker_event_answer": "3rd Annual LF Dealmakers Europe",
+      "transactions": [
+        {
+          "step": 1,
+          "phantom": false,
+          "created": "16/03/2026 22:32",
+          "amount_ordered": "0",
+          "amount_paid": "0",
+          "discount_codes": "LFSPEAKER (LF Europe Speaker)",
+          "admission_item_id": "b778bd71-299f-45e8-924f-219d4a15229a",
+          "admission_item_name": "SINGLE EVENT TICKET: 3rd Annual LF Dealmakers Europe",
+          "paid_numeric": 0.0,
+          "base_label": {
+            "id": 113,
+            "name": "Speaker - Non Sponsor"
+          },
+          "event_associations": [
+            {
+              "event_id": "39987075650",
+              "full_name": "3rd Annual LF Dealmakers Europe",
+              "label_id": 113,
+              "label_name": "Speaker - Non Sponsor",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            }
+          ],
+          "festival_associations": [
+            {
+              "id": "47447400287",
+              "full_name": "EU26"
+            }
+          ],
+          "sponsor_associations": [],
+          "deal": {
+            "deal_conditions_met": false,
+            "deal_conditions": {
+              "is_accepted": true,
+              "has_positive_amount": false,
+              "ref_no_delsale": true
+            },
+            "deal_scenario": "standard",
+            "deal_plan": []
+          },
+          "label_reason": "Base type: Speaker - Non Sponsor (reg type/path match)."
+        },
+        {
+          "step": 2,
+          "phantom": true,
+          "created": "16/03/2026 22:33",
+          "amount_ordered": "0",
+          "amount_paid": "0",
+          "admission_item_id": "b778bd71-299f-45e8-924f-219d4a15229a",
+          "admission_item_name": "SINGLE EVENT TICKET: 3rd Annual LF Dealmakers Europe",
+          "outcome": "ignored (phantom)",
+          "event_associations": [],
+          "deal": null,
+          "label_reason": null
+        },
+        {
+          "step": 3,
+          "phantom": false,
+          "created": "16/03/2026 22:33",
+          "amount_ordered": "0",
+          "amount_paid": "0",
+          "discount_codes": "",
+          "admission_item_id": "edba3040-5a95-401f-90ba-aa51d64b83d2",
+          "admission_item_name": "ALL ACCESS TICKET: 3rd Annual LF Dealmakers Europe & 3rd Annual IP Dealmakers Europe",
+          "paid_numeric": 0.0,
+          "base_label": {
+            "id": 113,
+            "name": "Speaker - Non Sponsor"
+          },
+          "event_associations": [
+            {
+              "event_id": "39987075650",
+              "full_name": "3rd Annual LF Dealmakers Europe",
+              "label_id": 113,
+              "label_name": "Speaker - Non Sponsor",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            },
+            {
+              "event_id": "39987199506",
+              "full_name": "3rd Annual IP Dealmakers Europe",
+              "label_id": 117,
+              "label_name": "Dealmakers Guest",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            }
+          ],
+          "festival_associations": [
+            {
+              "id": "47447400287",
+              "full_name": "EU26"
+            }
+          ],
+          "sponsor_associations": [],
+          "deal": {
+            "deal_conditions_met": false,
+            "deal_conditions": {
+              "is_accepted": true,
+              "has_positive_amount": false,
+              "ref_no_delsale": true
+            },
+            "deal_scenario": "standard",
+            "deal_plan": []
+          },
+          "label_reason": "Base type: Speaker - Non Sponsor (reg type/path match)."
+        }
+      ]
+    },
+    {
+      "cvent_attendee_id": "ed673cfd-616d-4c8f-8491-fdeef9a77108",
+      "attendee_name": "Alyssa Hart",
+      "email": "alyssa.dixon@globalbankingmarkets.com",
+      "registration_type": "Speaker - Non Sponsor",
+      "registration_path": "Speaker Path - Internal",
+      "admission_item_id": "edba3040-5a95-401f-90ba-aa51d64b83d2",
+      "base_label": {
+        "id": 113,
+        "name": "Speaker - Non Sponsor"
+      },
+      "discount_codes_overall": [
+        "IPSPEAKER"
+      ],
+      "speaker_event_answer": "3rd Annual IP Dealmakers Europe",
+      "transactions": [
+        {
+          "step": 1,
+          "phantom": false,
+          "created": "16/03/2026 22:02",
+          "amount_ordered": "0",
+          "amount_paid": "0",
+          "discount_codes": "IPSPEAKER (IP Europe Speaker)",
+          "admission_item_id": "8543c6d8-d195-4491-ba84-64d09d76432e",
+          "admission_item_name": "SINGLE EVENT TICKET: 3rd Annual IP Dealmakers Europe",
+          "paid_numeric": 0.0,
+          "base_label": {
+            "id": 113,
+            "name": "Speaker - Non Sponsor"
+          },
+          "event_associations": [
+            {
+              "event_id": "39987199506",
+              "full_name": "3rd Annual IP Dealmakers Europe",
+              "label_id": 113,
+              "label_name": "Speaker - Non Sponsor",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            }
+          ],
+          "festival_associations": [
+            {
+              "id": "47447400287",
+              "full_name": "EU26"
+            }
+          ],
+          "sponsor_associations": [],
+          "deal": {
+            "deal_conditions_met": false,
+            "deal_conditions": {
+              "is_accepted": true,
+              "has_positive_amount": false,
+              "ref_no_delsale": true
+            },
+            "deal_scenario": "standard",
+            "deal_plan": []
+          },
+          "label_reason": "Base type: Speaker - Non Sponsor (reg type/path match)."
+        },
+        {
+          "step": 2,
+          "phantom": true,
+          "created": "16/03/2026 22:07",
+          "amount_ordered": "0",
+          "amount_paid": "0",
+          "admission_item_id": "8543c6d8-d195-4491-ba84-64d09d76432e",
+          "admission_item_name": "SINGLE EVENT TICKET: 3rd Annual IP Dealmakers Europe",
+          "outcome": "ignored (phantom)",
+          "event_associations": [],
+          "deal": null,
+          "label_reason": null
+        },
+        {
+          "step": 3,
+          "phantom": false,
+          "created": "16/03/2026 22:35",
+          "amount_ordered": "360",
+          "amount_paid": "360",
+          "discount_codes": "",
+          "admission_item_id": "edba3040-5a95-401f-90ba-aa51d64b83d2",
+          "admission_item_name": "ALL ACCESS TICKET: 3rd Annual LF Dealmakers Europe & 3rd Annual IP Dealmakers Europe",
+          "paid_numeric": 360.0,
+          "base_label": {
+            "id": 113,
+            "name": "Speaker - Non Sponsor"
+          },
+          "event_associations": [
+            {
+              "event_id": "39987075650",
+              "full_name": "3rd Annual LF Dealmakers Europe",
+              "label_id": 111,
+              "label_name": "Paying Delegate",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            },
+            {
+              "event_id": "39987199506",
+              "full_name": "3rd Annual IP Dealmakers Europe",
+              "label_id": 113,
+              "label_name": "Speaker - Non Sponsor",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            }
+          ],
+          "festival_associations": [
+            {
+              "id": "47447400287",
+              "full_name": "EU26"
+            }
+          ],
+          "sponsor_associations": [],
+          "deal": {
+            "deal_conditions_met": true,
+            "deal_conditions": {
+              "is_accepted": true,
+              "has_positive_amount": true,
+              "ref_no_delsale": true
+            },
+            "deal_scenario": "speaker_upgrade",
+            "deal_plan": [
+              {
+                "action": "create",
+                "event_name": "3rd Annual IP Dealmakers Europe",
+                "event_id": "39987199506",
+                "amount": 360.0,
+                "dealname": "Alyssa Hart - 3rd Annual IP Dealmakers Europe",
+                "properties": {
+                  "dealname": "Alyssa Hart - 3rd Annual IP Dealmakers Europe",
+                  "pipeline": "726721932",
+                  "dealstage": "1191309199",
+                  "company_name": "Alyssa Co",
+                  "cvent_admission_item": "ALL ACCESS TICKET: 3rd Annual LF Dealmakers Europe & 3rd Annual IP Dealmakers Europe",
+                  "cvent_cancelled": "false",
+                  "cvent_invoice_number": "03162026-####-####",
+                  "amount": 360.0
+                }
+              }
+            ]
+          },
+          "label_reason": "Base type: Speaker - Non Sponsor (reg type/path match)."
+        },
+        {
+          "step": 4,
+          "phantom": true,
+          "created": "16/03/2026 22:35",
+          "amount_ordered": "0",
+          "amount_paid": "0",
+          "admission_item_id": "8543c6d8-d195-4491-ba84-64d09d76432e",
+          "admission_item_name": "SINGLE EVENT TICKET: 3rd Annual IP Dealmakers Europe",
+          "outcome": "ignored (phantom)",
+          "event_associations": [],
+          "deal": null,
+          "label_reason": null
+        }
+      ]
+    },
+    {
+      "cvent_attendee_id": "c6c5db6f-edb5-409a-a2be-f8966111963d",
+      "attendee_name": "Alison Wiedmann",
+      "email": "aly@gmail.com",
+      "registration_type": "Sponsor Executive",
+      "registration_path": "Sponsor Client or Executive Path",
+      "admission_item_id": "edba3040-5a95-401f-90ba-aa51d64b83d2",
+      "base_label": {
+        "id": 111,
+        "name": "Paying Delegate"
+      },
+      "discount_codes_overall": [
+        "ALYEXECIPEU26"
+      ],
+      "speaker_event_answer": "3rd Annual IP Dealmakers Europe",
+      "transactions": [
+        {
+          "step": 1,
+          "phantom": false,
+          "created": "16/03/2026 22:18",
+          "amount_ordered": "0",
+          "amount_paid": "0",
+          "discount_codes": "ALYEXECIPEU26 (Alyssa Sponsor Code - IP)",
+          "admission_item_id": "8543c6d8-d195-4491-ba84-64d09d76432e",
+          "admission_item_name": "SINGLE EVENT TICKET: 3rd Annual IP Dealmakers Europe",
+          "paid_numeric": 0.0,
+          "base_label": {
+            "id": 111,
+            "name": "Paying Delegate"
+          },
+          "event_associations": [
+            {
+              "event_id": "39987199506",
+              "full_name": "3rd Annual IP Dealmakers Europe",
+              "label_id": 107,
+              "label_name": "Sponsor Executive",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            }
+          ],
+          "festival_associations": [
+            {
+              "id": "47447400287",
+              "full_name": "EU26"
+            }
+          ],
+          "sponsor_associations": [
+            {
+              "id": "49878860330",
+              "name": ""
+            }
+          ],
+          "deal": {
+            "deal_conditions_met": false,
+            "deal_conditions": {
+              "is_accepted": true,
+              "has_positive_amount": false,
+              "ref_no_delsale": true
+            },
+            "deal_scenario": "standard",
+            "deal_plan": []
+          },
+          "label_reason": "Registration type not in explicit lists; defaulted to Paying Delegate (Sponsor Executive). EXEC/CLIENT discount code matched sponsor(s). Paid this step: False. Sponsor-linked event IDs: []. Event 3rd Annual IP Dealmakers Europe -> Sponsor (in sponsor-linked set). Warnings: Registration type \"Sponsor Executive\" is not in the Paying Delegate list; defaulting to Paying Delegate."
+        },
+        {
+          "step": 2,
+          "phantom": false,
+          "created": "16/03/2026 22:36",
+          "amount_ordered": "0",
+          "amount_paid": "0",
+          "discount_codes": "",
+          "admission_item_id": "edba3040-5a95-401f-90ba-aa51d64b83d2",
+          "admission_item_name": "ALL ACCESS TICKET: 3rd Annual LF Dealmakers Europe & 3rd Annual IP Dealmakers Europe",
+          "paid_numeric": 0.0,
+          "base_label": {
+            "id": 111,
+            "name": "Paying Delegate"
+          },
+          "event_associations": [
+            {
+              "event_id": "39987075650",
+              "full_name": "3rd Annual LF Dealmakers Europe",
+              "label_id": 107,
+              "label_name": "Sponsor Executive",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            },
+            {
+              "event_id": "39987199506",
+              "full_name": "3rd Annual IP Dealmakers Europe",
+              "label_id": 107,
+              "label_name": "Sponsor Executive",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            }
+          ],
+          "festival_associations": [
+            {
+              "id": "47447400287",
+              "full_name": "EU26"
+            }
+          ],
+          "sponsor_associations": [
+            {
+              "id": "49878860330",
+              "name": ""
+            }
+          ],
+          "deal": {
+            "deal_conditions_met": false,
+            "deal_conditions": {
+              "is_accepted": true,
+              "has_positive_amount": false,
+              "ref_no_delsale": true
+            },
+            "deal_scenario": "standard",
+            "deal_plan": []
+          },
+          "label_reason": "Registration type not in explicit lists; defaulted to Paying Delegate (Sponsor Executive). EXEC/CLIENT discount code matched sponsor(s). Paid this step: False. Sponsor-linked event IDs: ['39987075650']. Event 3rd Annual LF Dealmakers Europe -> Sponsor (in sponsor-linked set). Event 3rd Annual IP Dealmakers Europe -> Sponsor (in sponsor-linked set). Warnings: Registration type \"Sponsor Executive\" is not in the Paying Delegate list; defaulting to Paying Delegate."
+        },
+        {
+          "step": 3,
+          "phantom": true,
+          "created": "16/03/2026 22:36",
+          "amount_ordered": "0",
+          "amount_paid": "0",
+          "admission_item_id": "8543c6d8-d195-4491-ba84-64d09d76432e",
+          "admission_item_name": "SINGLE EVENT TICKET: 3rd Annual IP Dealmakers Europe",
+          "outcome": "ignored (phantom)",
+          "event_associations": [],
+          "deal": null,
+          "label_reason": null
+        }
+      ]
+    },
+    {
+      "cvent_attendee_id": "d1fe9665-b8e3-42b3-acd4-3d7e4092507f",
+      "attendee_name": "Ryan Zwick",
+      "email": "ryry@zwick.org",
+      "registration_type": "Sponsor Client",
+      "registration_path": "Sponsor Client or Executive Path",
+      "admission_item_id": "edba3040-5a95-401f-90ba-aa51d64b83d2",
+      "base_label": {
+        "id": 111,
+        "name": "Paying Delegate"
+      },
+      "discount_codes_overall": [
+        "ALYCLIENTIPEU26"
+      ],
+      "speaker_event_answer": "3rd Annual IP Dealmakers Europe",
+      "transactions": [
+        {
+          "step": 1,
+          "phantom": false,
+          "created": "16/03/2026 22:40",
+          "amount_ordered": "0",
+          "amount_paid": "0",
+          "discount_codes": "ALYCLIENTIPEU26 (Alyssa Client Code - IP)",
+          "admission_item_id": "8543c6d8-d195-4491-ba84-64d09d76432e",
+          "admission_item_name": "SINGLE EVENT TICKET: 3rd Annual IP Dealmakers Europe",
+          "paid_numeric": 0.0,
+          "base_label": {
+            "id": 111,
+            "name": "Paying Delegate"
+          },
+          "event_associations": [
+            {
+              "event_id": "39987199506",
+              "full_name": "3rd Annual IP Dealmakers Europe",
+              "label_id": 109,
+              "label_name": "Sponsor Client",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            }
+          ],
+          "festival_associations": [
+            {
+              "id": "47447400287",
+              "full_name": "EU26"
+            }
+          ],
+          "sponsor_associations": [
+            {
+              "id": "49878860330",
+              "name": ""
+            }
+          ],
+          "deal": {
+            "deal_conditions_met": false,
+            "deal_conditions": {
+              "is_accepted": true,
+              "has_positive_amount": false,
+              "ref_no_delsale": true
+            },
+            "deal_scenario": "standard",
+            "deal_plan": []
+          },
+          "label_reason": "Registration type not in explicit lists; defaulted to Paying Delegate (Sponsor Client). EXEC/CLIENT discount code matched sponsor(s). Paid this step: False. Sponsor-linked event IDs: []. Event 3rd Annual IP Dealmakers Europe -> Sponsor (in sponsor-linked set). Warnings: Registration type \"Sponsor Client\" is not in the Paying Delegate list; defaulting to Paying Delegate."
+        },
+        {
+          "step": 2,
+          "phantom": false,
+          "created": "16/03/2026 22:42",
+          "amount_ordered": "360",
+          "amount_paid": "360",
+          "discount_codes": "",
+          "admission_item_id": "edba3040-5a95-401f-90ba-aa51d64b83d2",
+          "admission_item_name": "ALL ACCESS TICKET: 3rd Annual LF Dealmakers Europe & 3rd Annual IP Dealmakers Europe",
+          "paid_numeric": 360.0,
+          "base_label": {
+            "id": 111,
+            "name": "Paying Delegate"
+          },
+          "event_associations": [
+            {
+              "event_id": "39987075650",
+              "full_name": "3rd Annual LF Dealmakers Europe",
+              "label_id": 111,
+              "label_name": "Paying Delegate",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            },
+            {
+              "event_id": "39987199506",
+              "full_name": "3rd Annual IP Dealmakers Europe",
+              "label_id": 109,
+              "label_name": "Sponsor Client",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            }
+          ],
+          "festival_associations": [
+            {
+              "id": "47447400287",
+              "full_name": "EU26"
+            }
+          ],
+          "sponsor_associations": [
+            {
+              "id": "49878860330",
+              "name": ""
+            }
+          ],
+          "deal": {
+            "deal_conditions_met": true,
+            "deal_conditions": {
+              "is_accepted": true,
+              "has_positive_amount": true,
+              "ref_no_delsale": true
+            },
+            "deal_scenario": "sponsor_upgrade",
+            "deal_plan": [
+              {
+                "action": "create",
+                "event_name": "3rd Annual LF Dealmakers Europe",
+                "event_id": "39987075650",
+                "amount": 360.0,
+                "dealname": "Ryan Zwick - 3rd Annual LF Dealmakers Europe",
+                "properties": {
+                  "dealname": "Ryan Zwick - 3rd Annual LF Dealmakers Europe",
+                  "pipeline": "726721932",
+                  "dealstage": "1191309199",
+                  "company_name": "Ryan's Ship",
+                  "cvent_admission_item": "ALL ACCESS TICKET: 3rd Annual LF Dealmakers Europe & 3rd Annual IP Dealmakers Europe",
+                  "cvent_cancelled": "false",
+                  "cvent_invoice_number": "03162026-####-####",
+                  "amount": 360.0
+                }
+              }
+            ]
+          },
+          "label_reason": "Registration type not in explicit lists; defaulted to Paying Delegate (Sponsor Client). EXEC/CLIENT discount code matched sponsor(s). Paid this step: True. Sponsor-linked event IDs: ['39987075650']. Event 3rd Annual IP Dealmakers Europe -> Sponsor (in sponsor-linked set). Warnings: Registration type \"Sponsor Client\" is not in the Paying Delegate list; defaulting to Paying Delegate."
+        },
+        {
+          "step": 3,
+          "phantom": true,
+          "created": "16/03/2026 22:42",
+          "amount_ordered": "0",
+          "amount_paid": "0",
+          "admission_item_id": "8543c6d8-d195-4491-ba84-64d09d76432e",
+          "admission_item_name": "SINGLE EVENT TICKET: 3rd Annual IP Dealmakers Europe",
+          "outcome": "ignored (phantom)",
+          "event_associations": [],
+          "deal": null,
+          "label_reason": null
+        }
+      ]
+    },
+    {
+      "cvent_attendee_id": "5e33d759-fbd5-4f64-ab60-e2a5df288efa",
+      "attendee_name": "Evan Tracy",
+      "email": "evan@tracyindustries.com",
+      "registration_type": "Small and Midsize Enterprise",
+      "registration_path": "General Attendee Path",
+      "admission_item_id": "edba3040-5a95-401f-90ba-aa51d64b83d2",
+      "base_label": {
+        "id": 111,
+        "name": "Paying Delegate"
+      },
+      "discount_codes_overall": [],
+      "speaker_event_answer": "",
+      "transactions": [
+        {
+          "step": 1,
+          "phantom": false,
+          "created": "16/03/2026 22:47",
+          "amount_ordered": "2,429",
+          "amount_paid": "2,429",
+          "discount_codes": "",
+          "admission_item_id": "8543c6d8-d195-4491-ba84-64d09d76432e",
+          "admission_item_name": "SINGLE EVENT TICKET: 3rd Annual IP Dealmakers Europe",
+          "paid_numeric": 2429.0,
+          "base_label": {
+            "id": 111,
+            "name": "Paying Delegate"
+          },
+          "event_associations": [
+            {
+              "event_id": "39987199506",
+              "full_name": "3rd Annual IP Dealmakers Europe",
+              "label_id": 111,
+              "label_name": "Paying Delegate",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            }
+          ],
+          "festival_associations": [
+            {
+              "id": "47447400287",
+              "full_name": "EU26"
+            }
+          ],
+          "sponsor_associations": [],
+          "deal": {
+            "deal_conditions_met": true,
+            "deal_conditions": {
+              "is_accepted": true,
+              "has_positive_amount": true,
+              "ref_no_delsale": true
+            },
+            "deal_scenario": "standard",
+            "deal_plan": [
+              {
+                "action": "create",
+                "event_name": "3rd Annual IP Dealmakers Europe",
+                "event_id": "39987199506",
+                "amount": 2429.0,
+                "dealname": "Evan Tracy - 3rd Annual IP Dealmakers Europe",
+                "properties": {
+                  "dealname": "Evan Tracy - 3rd Annual IP Dealmakers Europe",
+                  "pipeline": "726721932",
+                  "dealstage": "1191309199",
+                  "company_name": "Tracy Industries",
+                  "cvent_admission_item": "ALL ACCESS TICKET: 3rd Annual LF Dealmakers Europe & 3rd Annual IP Dealmakers Europe",
+                  "cvent_cancelled": "false",
+                  "cvent_invoice_number": "03162026-####-####",
+                  "amount": 2429.0
+                }
+              }
+            ]
+          },
+          "label_reason": "Base registration type in Paying Delegate list (Small and Midsize Enterprise)."
+        },
+        {
+          "step": 2,
+          "phantom": false,
+          "created": "16/03/2026 22:48",
+          "amount_ordered": "2,514",
+          "amount_paid": "2,514",
+          "discount_codes": "",
+          "admission_item_id": "edba3040-5a95-401f-90ba-aa51d64b83d2",
+          "admission_item_name": "ALL ACCESS TICKET: 3rd Annual LF Dealmakers Europe & 3rd Annual IP Dealmakers Europe",
+          "paid_numeric": 2514.0,
+          "base_label": {
+            "id": 111,
+            "name": "Paying Delegate"
+          },
+          "event_associations": [
+            {
+              "event_id": "39987075650",
+              "full_name": "3rd Annual LF Dealmakers Europe",
+              "label_id": 111,
+              "label_name": "Paying Delegate",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            },
+            {
+              "event_id": "39987199506",
+              "full_name": "3rd Annual IP Dealmakers Europe",
+              "label_id": 111,
+              "label_name": "Paying Delegate",
+              "festivals": [
+                {
+                  "id": "47447400287",
+                  "full_name": "EU26"
+                }
+              ]
+            }
+          ],
+          "festival_associations": [
+            {
+              "id": "47447400287",
+              "full_name": "EU26"
+            }
+          ],
+          "sponsor_associations": [],
+          "deal": {
+            "deal_conditions_met": true,
+            "deal_conditions": {
+              "is_accepted": true,
+              "has_positive_amount": true,
+              "ref_no_delsale": true
+            },
+            "deal_scenario": "paying_delegate_upgrade",
+            "deal_plan": [
+              {
+                "action": "update_existing",
+                "event_name": "3rd Annual LF Dealmakers Europe",
+                "event_id": "39987075650",
+                "amount": 2471.5,
+                "dealname": "Evan Tracy - 3rd Annual LF Dealmakers Europe",
+                "properties": {
+                  "dealname": "Evan Tracy - 3rd Annual LF Dealmakers Europe",
+                  "pipeline": "726721932",
+                  "dealstage": "1191309199",
+                  "company_name": "Tracy Industries",
+                  "cvent_admission_item": "ALL ACCESS TICKET: 3rd Annual LF Dealmakers Europe & 3rd Annual IP Dealmakers Europe",
+                  "cvent_cancelled": "false",
+                  "cvent_invoice_number": "03162026-####-####",
+                  "amount": 2471.5
+                }
+              },
+              {
+                "action": "create",
+                "event_name": "3rd Annual IP Dealmakers Europe",
+                "event_id": "39987199506",
+                "amount": 2471.5,
+                "dealname": "Evan Tracy - 3rd Annual IP Dealmakers Europe",
+                "properties": {
+                  "dealname": "Evan Tracy - 3rd Annual IP Dealmakers Europe",
+                  "pipeline": "726721932",
+                  "dealstage": "1191309199",
+                  "company_name": "Tracy Industries",
+                  "cvent_admission_item": "ALL ACCESS TICKET: 3rd Annual LF Dealmakers Europe & 3rd Annual IP Dealmakers Europe",
+                  "cvent_cancelled": "false",
+                  "cvent_invoice_number": "03162026-####-####",
+                  "amount": 2471.5
+                }
+              }
+            ]
+          },
+          "label_reason": "Base registration type in Paying Delegate list (Small and Midsize Enterprise)."
+        }
+      ]
+    }
+  ]
+}

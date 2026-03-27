@@ -1,0 +1,1461 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>DM Cvent Integration - Events</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --border: #2d3a4d;
+      --text: #e6edf3;
+      --text-muted: #8b9cb3;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --success: #22c55e;
+      --error: #ef4444;
+      --radius: 10px;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); margin: 0; padding: 2rem; line-height: 1.5; }
+    .container { max-width: 1280px; margin: 0 auto; }
+    h1 { font-size: 1.75rem; margin: 0 0 0.5rem; }
+    .subtitle { color: var(--text-muted); font-size: 0.95rem; margin-bottom: 1.5rem; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1rem; }
+    .card h2 { font-size: 1rem; color: var(--text-muted); margin: 0 0 1rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .table-wrap { overflow-x: auto; margin: 0 -0.5rem; }
+    .data-table { width: 100%; border-collapse: collapse; font-size: 0.9rem; table-layout: fixed; }
+    .data-table th, .data-table td { padding: 0.6rem 0.8rem; text-align: left; border-bottom: 1px solid var(--border); }
+    .data-table th { color: var(--text-muted); font-weight: 600; }
+    .cell-truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .table-events { min-width: 860px; }
+    .table-events th:nth-child(1), .table-events td:nth-child(1) { width: 380px; }
+    .table-events th:nth-child(2), .table-events td:nth-child(2) { width: 120px; }
+    .table-events th:nth-child(3), .table-events td:nth-child(3) { width: 90px; }
+    .table-events th:nth-child(4), .table-events td:nth-child(4) { width: 150px; }
+    .setup-dot { display: inline-block; width: 12px; height: 12px; border-radius: 50%; }
+    .setup-dot.red { background: var(--error); }
+    .setup-dot.amber { background: #f59e0b; }
+    .setup-dot.green { background: var(--success); }
+    .setup-dot.grey { background: var(--text-muted); }
+    .setup-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; background: transparent; border: 2px solid var(--border); border-radius: 50%; cursor: pointer; flex-shrink: 0; }
+    .setup-btn:hover { border-color: var(--accent); background: rgba(59, 130, 246, 0.1); }
+    .setup-btn .setup-dot { width: 20px; height: 20px; }
+    .attendee-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; color: var(--text-muted); flex-shrink: 0; }
+    .attendee-icon-btn:hover { background: var(--border); color: var(--accent); }
+    .hubspot-sync-btn { display: inline-flex; align-items: center; justify-content: center; width: 36px; height: 36px; padding: 0; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; cursor: pointer; color: var(--text-muted); flex-shrink: 0; }
+    .hubspot-sync-btn:hover { background: var(--border); color: var(--accent); }
+    .hubspot-sync-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    .hubspot-sync-btn.loading { pointer-events: none; opacity: 0.7; }
+    .attendee-detail-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 1rem; flex-wrap: wrap; gap: 0.5rem; }
+    .sync-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.6); z-index: 200; display: flex; align-items: center; justify-content: center; padding: 1rem; }
+    .sync-modal { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); max-width: 560px; width: 100%; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; }
+    .sync-section { margin-bottom: 1.25rem; }
+    .sync-section:last-child { margin-bottom: 0; }
+    .sync-section-title { font-size: 1.05rem; font-weight: 700; color: var(--text); letter-spacing: 0.02em; margin-bottom: 0.6rem; padding-bottom: 0.35rem; border-bottom: 1px solid var(--border); }
+    .sync-section-content { font-size: 0.85rem; }
+    .sync-not-accepted-banner { background: rgba(239, 68, 68, 0.25); border: 2px solid var(--error); color: #fca5a5; padding: 1rem 1.25rem; border-radius: 8px; margin-bottom: 1rem; font-weight: 600; font-size: 1rem; text-align: center; }
+    .sync-not-accepted-banner + p { font-size: 0.9rem; color: var(--text-muted); margin-top: -0.5rem; margin-bottom: 1rem; }
+    .sync-modal h3 { margin: 0; padding: 1rem 1.25rem; font-size: 1rem; border-bottom: 1px solid var(--border); }
+    .sync-modal-header { padding: 0.75rem 1.25rem; border-bottom: 1px solid var(--border); background: rgba(255,255,255,0.03); }
+    .sync-mode-row { display: flex; align-items: center; flex-wrap: wrap; gap: 0.75rem 1.25rem; }
+    .sync-mode-label { font-size: 0.85rem; color: var(--text-muted); }
+    .sync-mode-option { font-size: 0.9rem; cursor: pointer; display: flex; align-items: center; gap: 0.35rem; }
+    .sync-mode-option input { margin: 0; }
+    #sync-run-btn { margin-left: auto; }
+    .sync-modal-body { padding: 1.25rem; overflow-y: auto; font-size: 0.9rem; }
+    .sync-modal-body .training-badge { display: inline-block; padding: 0.2rem 0.5rem; font-size: 0.75rem; background: rgba(245, 158, 11, 0.2); color: #f59e0b; border-radius: 4px; margin-bottom: 1rem; }
+    .sync-modal-body ul { margin: 0.5rem 0 0; padding-left: 1.25rem; }
+    .sync-modal-body .result-item { margin-bottom: 0.75rem; }
+    .sync-modal-footer { padding: 1rem 1.25rem; border-top: 1px solid var(--border); }
+    .sync-tabs { display: flex; flex-wrap: wrap; gap: 0.25rem; margin-bottom: 1rem; border-bottom: 1px solid var(--border); padding-bottom: 0.5rem; }
+    .sync-tab { padding: 0.5rem 0.75rem; font-size: 0.8rem; background: transparent; border: 1px solid var(--border); border-radius: 6px; color: var(--text-muted); cursor: pointer; }
+    .sync-tab:hover { background: rgba(255,255,255,0.05); color: var(--text); }
+    .sync-tab.active { background: rgba(59, 130, 246, 0.2); border-color: var(--primary); color: var(--primary); }
+    .sync-report-content { margin-top: 0; }
+    .sync-step-intro { margin: 0 0 1rem; padding: 0.75rem 1rem; background: rgba(59, 130, 246, 0.12); border-left: 3px solid var(--primary); border-radius: 0 6px 6px 0; font-size: 0.9rem; color: var(--text); }
+    .event-actions-cell { display: flex; align-items: center; gap: 0.5rem; }
+    .table-attendees { min-width: 1000px; }
+    .table-attendees th:nth-child(1), .table-attendees td:nth-child(1) { width: 180px; }
+    .table-attendees th:nth-child(2), .table-attendees td:nth-child(2) { width: 140px; }
+    .table-attendees th:nth-child(3), .table-attendees td:nth-child(3) { width: 180px; }
+    .table-attendees th:nth-child(4), .table-attendees td:nth-child(4) { width: 120px; }
+    .table-attendees th:nth-child(5), .table-attendees td:nth-child(5) { width: 80px; }
+    .table-attendees th:nth-child(6), .table-attendees td:nth-child(6) { width: 100px; }
+    .table-attendees th:nth-child(7), .table-attendees td:nth-child(7) { width: 140px; }
+    .table-attendees th:nth-child(8), .table-attendees td:nth-child(8) { width: 60px; }
+    .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.85rem; }
+    .error-msg { background: rgba(239, 68, 68, 0.2); color: var(--error); padding: 1rem; border-radius: 6px; margin-top: 0.5rem; }
+    .loading { display: inline-block; width: 1rem; height: 1rem; border: 2px solid rgba(255,255,255,0.3); border-top-color: white; border-radius: 50%; animation: spin 0.6s linear infinite; vertical-align: middle; margin-right: 0.5rem; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    select { padding: 0.5rem 1rem; font-size: 0.95rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); min-width: 300px; }
+    .event-row:hover { background: rgba(255,255,255,0.02); }
+    .attendee-row { cursor: pointer; }
+    .attendee-row:hover { background: rgba(59, 130, 246, 0.1); }
+    .attendee-row.selected { background: rgba(59, 130, 246, 0.2); }
+    .attendees-section { margin-top: 1.5rem; }
+    .result-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 1rem; }
+    .result-item { display: flex; flex-direction: column; gap: 0.25rem; }
+    .result-item .label { font-size: 0.8rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.03em; }
+    .result-item .value { font-family: 'JetBrains Mono', monospace; font-size: 0.9rem; word-break: break-all; }
+    .result-item .value.empty { color: var(--text-muted); font-style: italic; }
+    .badge { display: inline-block; padding: 0.2rem 0.5rem; font-size: 0.75rem; font-weight: 600; border-radius: 4px; }
+    .badge.yes { background: rgba(34, 197, 94, 0.2); color: var(--success); }
+    .badge.no { background: rgba(239, 68, 68, 0.2); color: var(--error); }
+    .json-block { margin-top: 1rem; padding: 1rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; font-family: 'JetBrains Mono', monospace; font-size: 0.8rem; max-height: 200px; overflow: auto; white-space: pre-wrap; word-break: break-all; }
+    .back-btn { display: inline-flex; align-items: center; gap: 0.5rem; padding: 0.5rem 1rem; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; color: var(--text); font-family: inherit; font-size: 0.9rem; cursor: pointer; margin-bottom: 1rem; }
+    .back-btn:hover { background: var(--border); }
+    .section-card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 1.5rem; margin-bottom: 1.5rem; }
+    .section-card h3 { font-size: 0.9rem; color: var(--text-muted); margin: 0 0 1rem; text-transform: uppercase; letter-spacing: 0.05em; }
+    .map-btn { display: inline-flex; align-items: center; justify-content: center; width: 32px; height: 32px; padding: 0; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; font-size: 1.2rem; line-height: 1; }
+    .map-btn:hover { background: var(--accent-hover); }
+    .map-btn.mapped { background: var(--success); }
+    .map-dropdown { position: absolute; z-index: 100; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); min-width: 280px; max-height: 320px; display: flex; flex-direction: column; }
+    .map-dropdown input { padding: 0.5rem 0.75rem; margin: 0.5rem; font-size: 0.9rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
+    .map-dropdown ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 240px; }
+    .map-dropdown li { padding: 0.5rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--border); }
+    .map-dropdown li:hover { background: rgba(59, 130, 246, 0.15); }
+    .map-dropdown li.hidden { display: none; }
+    .map-cell { display: flex; align-items: center; gap: 0.5rem; position: relative; }
+    .mapped-label { font-size: 0.9rem; color: var(--text-muted); }
+    .create-prop-row { padding: 0.75rem; border-top: 1px solid var(--border); display: flex; gap: 0.5rem; align-items: center; }
+    .create-prop-row input { flex: 1; padding: 0.5rem 0.75rem; font-size: 0.9rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
+    .create-prop-btn { padding: 0.5rem 1rem; font-size: 0.85rem; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+    .create-prop-btn:hover { background: var(--accent-hover); }
+    .create-prop-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .event-dropdown { position: absolute; z-index: 100; background: var(--surface); border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 8px 24px rgba(0,0,0,0.4); min-width: 320px; max-height: 400px; display: flex; flex-direction: column; }
+    .event-dropdown input[type="text"] { padding: 0.5rem 0.75rem; margin: 0.5rem; font-size: 0.9rem; background: var(--bg); border: 1px solid var(--border); border-radius: 6px; color: var(--text); }
+    .event-dropdown ul { list-style: none; margin: 0; padding: 0; overflow-y: auto; max-height: 260px; }
+    .event-dropdown li { padding: 0.5rem 0.75rem; cursor: pointer; border-bottom: 1px solid var(--border); display: flex; align-items: center; gap: 0.5rem; }
+    .event-dropdown li:hover { background: rgba(59, 130, 246, 0.15); }
+    .event-dropdown li.hidden { display: none; }
+    .event-dropdown li input[type="checkbox"] { margin: 0; cursor: pointer; }
+    .event-dropdown .save-row { padding: 0.75rem; border-top: 1px solid var(--border); display: flex; justify-content: flex-end; }
+    .event-dropdown .save-btn { padding: 0.5rem 1rem; font-size: 0.85rem; background: var(--accent); color: white; border: none; border-radius: 6px; cursor: pointer; font-weight: 600; }
+    .event-dropdown .save-btn:hover { background: var(--accent-hover); }
+    .event-dropdown .save-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+    .admission-events-cell { display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap; }
+    .admission-events-cell .map-btn { margin-left: auto; flex-shrink: 0; }
+    .admission-events-badges { display: flex; flex-wrap: wrap; gap: 0.25rem; }
+    .admission-events-badge { font-size: 0.75rem; padding: 0.2rem 0.5rem; background: rgba(59, 130, 246, 0.2); border-radius: 4px; color: var(--accent); }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>DM Cvent Integration</h1>
+    <p class="subtitle" id="nav-subtitle"></p>
+
+    <div id="screen-events">
+      <div class="card" style="margin-bottom:1rem;">
+        <h2>Question mappings</h2>
+        <p style="font-size:0.9rem;color:var(--text-muted);margin:0 0 0.75rem;">Map Cvent question codes to HubSpot Attendee properties. These mappings apply to all events.</p>
+        <button type="button" class="back-btn" id="open-question-mappings">Configure question mappings →</button>
+      </div>
+      <div class="card">
+        <h2>Events</h2>
+        <input type="text" id="event-search" placeholder="Search events by name..." style="width:100%;max-width:400px;padding:0.6rem 0.8rem;margin-bottom:1rem;font-size:0.95rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);">
+        <div id="events-content"></div>
+      </div>
+    </div>
+
+    <div id="screen-question-mappings" style="display: none;">
+      <h2 style="font-size:1rem;color:var(--text-muted);margin:0 0 1rem;text-transform:uppercase;letter-spacing:0.05em;">Question mappings (per event)</h2>
+      <div style="margin-bottom:1rem;"><label style="color:var(--text-muted);font-size:0.9rem;">Select event: </label><select id="question-mappings-event-select" style="min-width:320px;"><option value="">— Select an event —</option></select></div>
+      <div id="question-mappings-content"></div>
+    </div>
+
+    <div id="screen-setup" style="display: none;">
+      <h2 style="font-size:1rem;color:var(--text-muted);margin:0 0 0.25rem;text-transform:uppercase;letter-spacing:0.05em;">HubSpot Setup for <span id="setup-event-name"></span></h2>
+      <p id="setup-event-id" class="mono" style="font-size:0.8rem;color:var(--text-muted);margin:0 0 1rem;"></p>
+      <div id="setup-content"></div>
+    </div>
+
+    <div id="screen-attendees" style="display: none;">
+      <h2 style="font-size:1rem;color:var(--text-muted);margin:0 0 1rem;text-transform:uppercase;letter-spacing:0.05em;">Attendees for <span id="selected-event-name"></span></h2>
+      <div id="attendees-content"></div>
+    </div>
+
+    <div id="screen-attendee-detail" style="display: none;">
+      <div id="attendee-detail-content"></div>
+      <div id="order-detail-content"></div>
+    </div>
+
+    <div id="sync-modal-overlay" class="sync-modal-overlay" style="display: none;">
+      <div class="sync-modal">
+        <h3>Sync with HubSpot</h3>
+        <div id="sync-modal-header" class="sync-modal-header">
+          <div class="sync-mode-row">
+            <span class="sync-mode-label">Mode:</span>
+            <label class="sync-mode-option"><input type="radio" name="sync-mode" value="training" checked> Training</label>
+            <label class="sync-mode-option"><input type="radio" name="sync-mode" value="live"> Live</label>
+            <button type="button" class="btn primary" id="sync-run-btn">Run sync</button>
+          </div>
+        </div>
+        <div id="sync-modal-body" class="sync-modal-body"></div>
+        <div class="sync-modal-footer">
+          <button type="button" class="back-btn" id="sync-modal-close">Close</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const eventsEl = document.getElementById('events-content');
+    const eventSearch = document.getElementById('event-search');
+    const navSubtitle = document.getElementById('nav-subtitle');
+    const screenEvents = document.getElementById('screen-events');
+    const screenQuestionMappings = document.getElementById('screen-question-mappings');
+    const questionMappingsContent = document.getElementById('question-mappings-content');
+    const screenSetup = document.getElementById('screen-setup');
+    const screenAttendees = document.getElementById('screen-attendees');
+    const screenAttendeeDetail = document.getElementById('screen-attendee-detail');
+    const setupContent = document.getElementById('setup-content');
+    const setupEventName = document.getElementById('setup-event-name');
+    const setupEventId = document.getElementById('setup-event-id');
+    const attendeesContent = document.getElementById('attendees-content');
+    const selectedEventName = document.getElementById('selected-event-name');
+    const attendeeDetailContent = document.getElementById('attendee-detail-content');
+    const orderDetailContent = document.getElementById('order-detail-content');
+
+    eventsEl.innerHTML = '<span class="loading"></span>Loading events...';
+
+    let eventsData = [];
+    let setupStatusMap = {};
+    let currentEventId = null;
+    let currentEventName = null;
+    let currentAttendeeId = null;
+
+    function computeSetupStatus(eventId, admissionItems, regQuestions, quantityItems) {
+      const admTotal = (admissionItems || []).length;
+      const qTotal = (regQuestions || []).length;
+      const qtyList = (quantityItems || []).filter(qi => qi.id);
+      const qtyTotal = qtyList.length;
+      const total = admTotal + qTotal + qtyTotal;
+      if (total === 0) return 'grey';
+      let admMapped = 0;
+      (admissionItems || []).forEach(ai => {
+        const aiId = String(ai.id || '');
+        if (hubspotEvents.some(e => (e.admission_item_ids || []).includes(aiId))) admMapped++;
+      });
+      let qMapped = 0;
+      const mappings = getGlobalQuestionMappings();
+      (regQuestions || []).forEach(q => {
+        const key = eventId && q.id ? eventId + ':' + q.id : '';
+        if (key && mappings[key]) qMapped++;
+      });
+      let qtyMapped = 0;
+      const qtyProd = getGlobalQuantityProductMappings();
+      qtyList.forEach(qi => {
+        const key = eventId && qi.id ? eventId + ':' + qi.id : '';
+        if (key && qtyProd[key]) qtyMapped++;
+      });
+      const mapped = admMapped + qMapped + qtyMapped;
+      if (mapped === 0) return 'red';
+      if (mapped < total) return 'amber';
+      return 'green';
+    }
+
+    const GLOBAL_MAPPINGS_KEY = 'cvent_global_question_mappings';
+    function getGlobalQuestionMappings() {
+      try {
+        const raw = localStorage.getItem(GLOBAL_MAPPINGS_KEY);
+        return raw ? JSON.parse(raw) : {};
+      } catch { return {}; }
+    }
+    function setGlobalQuestionMapping(eventId, questionId, prop) {
+      const mappings = getGlobalQuestionMappings();
+      const key = eventId && questionId ? eventId + ':' + questionId : '';
+      if (!key) return;
+      if (prop && prop.name) mappings[key] = { name: prop.name, label: prop.label || prop.name };
+      else delete mappings[key];
+      localStorage.setItem(GLOBAL_MAPPINGS_KEY, JSON.stringify(mappings));
+    }
+
+    const GLOBAL_QTY_PRODUCT_KEY = 'cvent_quantity_item_hubspot_products';
+    function getGlobalQuantityProductMappings() {
+      try {
+        const raw = localStorage.getItem(GLOBAL_QTY_PRODUCT_KEY);
+        return raw ? JSON.parse(raw) : {};
+      } catch { return {}; }
+    }
+    function setGlobalQuantityProductMapping(eventId, quantityItemId, product) {
+      const mappings = getGlobalQuantityProductMappings();
+      const key = eventId && quantityItemId ? eventId + ':' + quantityItemId : '';
+      if (!key) return;
+      if (product && product.id) {
+        mappings[key] = {
+          id: String(product.id),
+          name: product.name || '',
+          sku: product.sku || ''
+        };
+      } else delete mappings[key];
+      localStorage.setItem(GLOBAL_QTY_PRODUCT_KEY, JSON.stringify(mappings));
+    }
+
+    function removeSetupDropdownRoots() {
+      document.getElementById('map-dropdown-root')?.remove();
+      document.getElementById('product-dropdown-root')?.remove();
+    }
+
+    let hubspotProperties = [];
+    async function loadHubspotProperties() {
+      if (hubspotProperties.length > 0) return hubspotProperties;
+      const r = await fetch('/api/hubspot/attendee-properties');
+      const data = r.ok ? await r.json() : {};
+      hubspotProperties = data.properties || [];
+      return hubspotProperties;
+    }
+
+    let hubspotEvents = [];
+    async function loadHubspotEvents() {
+      const r = await fetch('/api/hubspot/events');
+      const data = r.ok ? await r.json() : {};
+      hubspotEvents = data.events || [];
+      return hubspotEvents;
+    }
+
+    let hubspotProducts = [];
+    let hubspotProductsFetchError = null;
+    async function loadHubspotProducts() {
+      if (hubspotProducts.length > 0) return hubspotProducts;
+      hubspotProductsFetchError = null;
+      const r = await fetch('/api/hubspot/products');
+      const data = await r.json().catch(() => ({}));
+      hubspotProducts = Array.isArray(data.products) ? data.products : [];
+      if (!r.ok) hubspotProductsFetchError = data.error || `HTTP ${r.status}`;
+      return hubspotProducts;
+    }
+
+    function openEventDropdown(btn, admissionItem) {
+      const existing = document.getElementById('event-dropdown-root');
+      if (existing) existing.remove();
+      const root = document.createElement('div');
+      root.id = 'event-dropdown-root';
+      root.style.cssText = 'position:fixed;inset:0;z-index:99;';
+      root.addEventListener('click', (e) => { if (e.target === root) root.remove(); });
+      const rect = btn.getBoundingClientRect();
+      const dd = document.createElement('div');
+      dd.className = 'event-dropdown';
+      dd.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;`;
+      dd.addEventListener('click', (e) => e.stopPropagation());
+      const searchInput = document.createElement('input');
+      searchInput.type = 'text';
+      searchInput.placeholder = 'Type to search events...';
+      dd.appendChild(searchInput);
+      const ul = document.createElement('ul');
+      const saveRow = document.createElement('div');
+      saveRow.className = 'save-row';
+      const saveBtn = document.createElement('button');
+      saveBtn.type = 'button';
+      saveBtn.className = 'save-btn';
+      saveBtn.textContent = 'Save';
+      saveRow.appendChild(saveBtn);
+      dd.appendChild(ul);
+      dd.appendChild(saveRow);
+
+      const admissionItemId = String(admissionItem.id || '');
+      const selectedIds = new Set(hubspotEvents.filter(e => (e.admission_item_ids || []).includes(admissionItemId)).map(e => String(e.id)));
+
+      function renderList(filter) {
+        const q = (filter || '').toLowerCase();
+        const filtered = hubspotEvents.filter(e => !q || (e.full_name || '').toLowerCase().includes(q));
+        ul.innerHTML = filtered.length === 0
+          ? '<li style="color:var(--text-muted);padding:1rem;">No HubSpot events found.</li>'
+          : filtered.map(e => {
+              const checked = selectedIds.has(String(e.id)) ? 'checked' : '';
+              return `<li data-id="${escapeHtml(String(e.id))}" data-name="${escapeHtml(e.full_name || '')}"><input type="checkbox" ${checked}><span>${escapeHtml(e.full_name || '—')}</span></li>`;
+            }).join('');
+        ul.querySelectorAll('li[data-id]').forEach(li => {
+          li.addEventListener('click', (e) => {
+            if (e.target.type === 'checkbox') return;
+            const cb = li.querySelector('input[type="checkbox"]');
+            if (cb) {
+              cb.checked = !cb.checked;
+              if (cb.checked) selectedIds.add(li.dataset.id);
+              else selectedIds.delete(li.dataset.id);
+            }
+          });
+          li.querySelector('input[type="checkbox"]')?.addEventListener('click', (e) => {
+            e.stopPropagation();
+            const cb = e.target;
+            if (cb.checked) selectedIds.add(li.dataset.id);
+            else selectedIds.delete(li.dataset.id);
+          });
+        });
+      }
+
+      saveBtn.addEventListener('click', async () => {
+        const selected = Array.from(selectedIds);
+        saveBtn.disabled = true;
+        saveBtn.textContent = 'Saving...';
+        try {
+          const r = await fetch('/api/hubspot/associate-admission-item', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ admission_item_id: admissionItemId, event_ids: selected })
+          });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            alert(data.error || 'Failed to save');
+            return;
+          }
+          await loadHubspotEvents();
+          root.remove();
+          loadSetup(currentEventId, currentEventName);
+        } catch (err) {
+          alert(err.message || 'Failed to save');
+        } finally {
+          saveBtn.disabled = false;
+          saveBtn.textContent = 'Save';
+        }
+      });
+
+      loadHubspotEvents().then(() => {
+        if (hubspotEvents.length === 0) {
+          ul.innerHTML = '<li style="color:var(--text-muted);padding:1rem;">No HubSpot events found. Check CustomCode in .env.</li>';
+        } else {
+          renderList();
+          searchInput.addEventListener('input', () => renderList(searchInput.value));
+        }
+        searchInput.focus();
+      });
+
+      root.appendChild(dd);
+      document.body.appendChild(root);
+    }
+
+    function openMapDropdown(eventId, btn, questionId) {
+      removeSetupDropdownRoots();
+      const root = document.createElement('div');
+      root.id = 'map-dropdown-root';
+      root.style.cssText = 'position:fixed;inset:0;z-index:99;';
+      root.addEventListener('click', (e) => { if (e.target === root) root.remove(); });
+      const rect = btn.getBoundingClientRect();
+      const dd = document.createElement('div');
+      dd.className = 'map-dropdown';
+      dd.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;`;
+      dd.addEventListener('click', (e) => e.stopPropagation());
+      const searchInput = document.createElement('input');
+      searchInput.type = 'text';
+      searchInput.placeholder = 'Type to search...';
+      dd.appendChild(searchInput);
+      const ul = document.createElement('ul');
+      function renderList(filter) {
+        const q = (filter || '').toLowerCase();
+        const filtered = hubspotProperties.filter(p => !q || (p.label || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q));
+        ul.innerHTML = '<li data-clear="1" style="color:var(--text-muted);font-style:italic;">— Clear mapping</li>' +
+          filtered.map(p => `<li data-name="${escapeHtml(p.name)}" data-label="${escapeHtml(p.label || p.name)}">${escapeHtml(p.label || p.name)}</li>`).join('');
+        ul.querySelectorAll('li').forEach(li => {
+          li.addEventListener('click', () => {
+            if (li.dataset.clear) {
+              setGlobalQuestionMapping(eventId, questionId, null);
+            } else {
+              setGlobalQuestionMapping(eventId, questionId, { name: li.dataset.name, label: li.dataset.label });
+            }
+            root.remove();
+            loadSetup(eventId, currentEventName);
+          });
+        });
+      }
+      const createRow = document.createElement('div');
+      createRow.className = 'create-prop-row';
+      createRow.innerHTML = '<input type="text" placeholder="Create new property (e.g. Country)" id="new-prop-label"><button type="button" class="create-prop-btn" id="create-prop-btn">Create</button>';
+      const newPropInput = createRow.querySelector('#new-prop-label');
+      const createBtn = createRow.querySelector('#create-prop-btn');
+      createBtn.addEventListener('click', async () => {
+        const label = (newPropInput.value || '').trim();
+        if (!label) return;
+        createBtn.disabled = true;
+        createBtn.textContent = 'Creating...';
+        try {
+          const r = await fetch('/api/hubspot/create-property', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label })
+          });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            alert(data.error || 'Failed to create property');
+            return;
+          }
+          hubspotProperties = [];
+          const props = await loadHubspotProperties();
+          const newProp = props.find(p => p.name === data.name) || { name: data.name, label: data.label };
+          setGlobalQuestionMapping(eventId, questionId, newProp);
+          root.remove();
+          loadSetup(eventId, currentEventName);
+        } catch (err) {
+          alert(err.message || 'Failed to create property');
+        } finally {
+          createBtn.disabled = false;
+          createBtn.textContent = 'Create';
+        }
+      });
+      dd.appendChild(ul);
+      dd.appendChild(createRow);
+      loadHubspotProperties().then(() => {
+        if (hubspotProperties.length === 0) {
+          ul.innerHTML = '<li style="color:var(--text-muted);padding:1rem;">No HubSpot properties found. Check CustomCode in .env.</li>';
+        } else {
+          renderList();
+          searchInput.addEventListener('input', () => renderList(searchInput.value));
+        }
+        searchInput.focus();
+      });
+      root.appendChild(dd);
+      document.body.appendChild(root);
+    }
+
+    function openProductMapDropdown(eventId, quantityItemId, btn) {
+      removeSetupDropdownRoots();
+      const root = document.createElement('div');
+      root.id = 'product-dropdown-root';
+      root.style.cssText = 'position:fixed;inset:0;z-index:99;';
+      root.addEventListener('click', (e) => { if (e.target === root) root.remove(); });
+      const rect = btn.getBoundingClientRect();
+      const dd = document.createElement('div');
+      dd.className = 'map-dropdown';
+      dd.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;min-width:320px;max-width:min(480px,90vw);`;
+      dd.addEventListener('click', (e) => e.stopPropagation());
+      const searchInput = document.createElement('input');
+      searchInput.type = 'text';
+      searchInput.placeholder = 'Search by name or SKU...';
+      dd.appendChild(searchInput);
+      const ul = document.createElement('ul');
+      function renderList(filter) {
+        const q = (filter || '').toLowerCase();
+        const sorted = [...hubspotProducts].sort((a, b) => {
+          const na = (a.name || '').toLowerCase();
+          const nb = (b.name || '').toLowerCase();
+          if (na !== nb) return na.localeCompare(nb);
+          return (a.sku || '').toLowerCase().localeCompare((b.sku || '').toLowerCase());
+        });
+        const filtered = sorted.filter(p => {
+          if (!q) return true;
+          return (p.name || '').toLowerCase().includes(q) || (p.sku || '').toLowerCase().includes(q);
+        });
+        ul.innerHTML = '<li data-clear="1" style="color:var(--text-muted);font-style:italic;">— Clear mapping</li>' +
+          filtered.map(p => {
+            const skuPart = p.sku ? ` <span style="color:var(--text-muted);font-size:0.85em;">SKU: ${escapeHtml(p.sku)}</span>` : ' <span style="color:var(--text-muted);font-size:0.85em;">(no SKU)</span>';
+            return `<li data-id="${escapeHtml(String(p.id))}" data-name="${escapeHtml(p.name || '')}" data-sku="${escapeHtml(p.sku || '')}"><strong>${escapeHtml(p.name || '—')}</strong>${skuPart}</li>`;
+          }).join('');
+        ul.querySelectorAll('li').forEach(li => {
+          li.addEventListener('click', () => {
+            if (li.dataset.clear) {
+              setGlobalQuantityProductMapping(eventId, quantityItemId, null);
+            } else {
+              setGlobalQuantityProductMapping(eventId, quantityItemId, {
+                id: li.dataset.id,
+                name: li.dataset.name,
+                sku: li.dataset.sku
+              });
+            }
+            root.remove();
+            loadSetup(eventId, currentEventName);
+          });
+        });
+      }
+      dd.appendChild(ul);
+      loadHubspotProducts().then(() => {
+        if (hubspotProducts.length === 0) {
+          const err = hubspotProductsFetchError ? `<div style="font-size:0.8rem;margin-top:0.5rem;">${escapeHtml(hubspotProductsFetchError)}</div>` : '';
+          ul.innerHTML = `<li style="color:var(--text-muted);padding:1rem;">No HubSpot products loaded.${err ? '' : ' Check CustomCode and <code>crm.objects.products.read</code> scope.'}${err}</li>`;
+        } else {
+          renderList();
+          searchInput.addEventListener('input', () => renderList(searchInput.value));
+        }
+        searchInput.focus();
+      });
+      root.appendChild(dd);
+      document.body.appendChild(root);
+    }
+
+    function showScreen(screen) {
+      screenEvents.style.display = screen === 'events' ? 'block' : 'none';
+      screenQuestionMappings.style.display = screen === 'question-mappings' ? 'block' : 'none';
+      screenSetup.style.display = screen === 'setup' ? 'block' : 'none';
+      screenAttendees.style.display = screen === 'attendees' ? 'block' : 'none';
+      screenAttendeeDetail.style.display = screen === 'detail' ? 'block' : 'none';
+      if (screen === 'events') {
+        navSubtitle.innerHTML = '';
+        renderEventsTable(eventSearch.value);
+      }
+      else if (screen === 'question-mappings') {
+        navSubtitle.innerHTML = '<button class="back-btn" type="button" id="back-to-events">← Back to events</button>';
+        const sel = document.getElementById('question-mappings-event-select');
+        if (sel) {
+          sel.innerHTML = '<option value="">— Select an event —</option>' +
+            eventsData.map(e => `<option value="${escapeHtml(e.id)}">${escapeHtml((e.name || e.title || e.id || '').slice(0, 80))}</option>`).join('');
+          sel.value = '';
+          sel.onchange = () => loadQuestionMappingsScreen(sel.value || null);
+        }
+        loadQuestionMappingsScreen(null);
+      }
+      else if (screen === 'setup') navSubtitle.innerHTML = '<button class="back-btn" type="button" id="back-to-events">← Back to events</button>';
+      else if (screen === 'attendees') navSubtitle.innerHTML = '<button class="back-btn" type="button" id="back-to-events">← Back to events</button>';
+      else navSubtitle.innerHTML = '<button class="back-btn" type="button" id="back-to-attendees">← Back to attendees</button>';
+      document.getElementById('back-to-events')?.addEventListener('click', () => showScreen('events'));
+      document.getElementById('back-to-attendees')?.addEventListener('click', () => showScreen('attendees'));
+    }
+
+    function loadQuestionMappingsScreen(selectedEventId) {
+      if (!selectedEventId) {
+        questionMappingsContent.innerHTML = '<div class="section-card"><h3>Question mappings</h3><p style="font-size:0.9rem;color:var(--text-muted);">Select an event to configure question mappings. Mappings are per-event (keyed by question ID).</p><p style="margin-top:1rem;">Click <strong>HubSpot Setup</strong> on any event row to configure its questions.</p></div>';
+        return;
+      }
+      questionMappingsContent.innerHTML = '<span class="loading"></span>Loading questions...';
+      fetchJson(`/api/events/${encodeURIComponent(selectedEventId)}/attendees`).then(({ ok, data }) => {
+        if (data.error) {
+          questionMappingsContent.innerHTML = `<div class="error-msg">${escapeHtml(data.error)}</div>`;
+          return;
+        }
+        const questions = data.registration_questions || [];
+        const mappings = getGlobalQuestionMappings();
+        const eventName = eventsData.find(e => e.id === selectedEventId)?.name || selectedEventId;
+        let html = '<div class="section-card"><h3>Question mappings</h3>';
+        html += `<p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Event: <strong>${escapeHtml(eventName)}</strong>. Map each question to a HubSpot Attendee property.</p>`;
+        if (questions.length === 0) {
+          html += '<p style="color:var(--text-muted);">No registration questions found for this event.</p></div>';
+          questionMappingsContent.innerHTML = html;
+          return;
+        }
+        html += '<div class="table-wrap"><table class="data-table" style="min-width:600px;"><thead><tr><th>Question</th><th>Question code</th><th>HubSpot property</th></tr></thead><tbody>';
+        questions.forEach(q => {
+          const qid = q.id || '';
+          const qcode = (q.code || '').trim() || '—';
+          const qtext = (q.text || '').trim() || '—';
+          const mapKey = selectedEventId && qid ? selectedEventId + ':' + qid : '';
+          const mapping = mapKey ? mappings[mapKey] : null;
+          const mappedLabel = mapping ? mapping.label : '';
+          html += `<tr><td style="width:280px;"><div style="font-size:0.9rem;word-break:break-word;">${escapeHtml(qtext)}</div><div class="mono" style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">${escapeHtml(qid)}</div></td><td class="mono" style="width:180px;font-size:0.8rem;">${escapeHtml(qcode)}</td><td><div class="map-cell"><button type="button" class="map-btn ${mapping ? 'mapped' : ''}" data-qid="${escapeHtml(qid)}" data-event-id="${escapeHtml(selectedEventId)}" title="Map to HubSpot property">+</button><span class="mapped-label">${escapeHtml(mappedLabel || 'Not mapped')}</span></div></td></tr>`;
+        });
+        html += '</tbody></table></div></div>';
+        questionMappingsContent.innerHTML = html;
+        questionMappingsContent.querySelectorAll('.map-btn[data-qid]').forEach(btn => {
+          btn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            openMapDropdownForEvent(btn.dataset.eventId, btn.dataset.qid, btn, () => loadQuestionMappingsScreen(selectedEventId));
+          });
+        });
+      });
+    }
+
+    function openMapDropdownForEvent(eventId, questionId, btn, onSave) {
+      removeSetupDropdownRoots();
+      const root = document.createElement('div');
+      root.id = 'map-dropdown-root';
+      root.style.cssText = 'position:fixed;inset:0;z-index:99;';
+      root.addEventListener('click', (e) => { if (e.target === root) root.remove(); });
+      const rect = btn.getBoundingClientRect();
+      const dd = document.createElement('div');
+      dd.className = 'map-dropdown';
+      dd.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;`;
+      dd.addEventListener('click', (e) => e.stopPropagation());
+      const searchInput = document.createElement('input');
+      searchInput.type = 'text';
+      searchInput.placeholder = 'Type to search...';
+      dd.appendChild(searchInput);
+      const ul = document.createElement('ul');
+      function renderList(filter) {
+        const q = (filter || '').toLowerCase();
+        const filtered = hubspotProperties.filter(p => !q || (p.label || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q));
+        ul.innerHTML = '<li data-clear="1" style="color:var(--text-muted);font-style:italic;">— Clear mapping</li>' +
+          filtered.map(p => `<li data-name="${escapeHtml(p.name)}" data-label="${escapeHtml(p.label || p.name)}">${escapeHtml(p.label || p.name)}</li>`).join('');
+        ul.querySelectorAll('li').forEach(li => {
+          li.addEventListener('click', () => {
+            if (li.dataset.clear) {
+              setGlobalQuestionMapping(eventId, questionId, null);
+            } else {
+              setGlobalQuestionMapping(eventId, questionId, { name: li.dataset.name, label: li.dataset.label });
+            }
+            root.remove();
+            if (onSave) onSave();
+          });
+        });
+      }
+      const createRow = document.createElement('div');
+      createRow.className = 'create-prop-row';
+      createRow.innerHTML = '<input type="text" placeholder="Create new property (e.g. Country)" id="new-prop-label"><button type="button" class="create-prop-btn" id="create-prop-btn">Create</button>';
+      const newPropInput = createRow.querySelector('#new-prop-label');
+      const createBtn = createRow.querySelector('#create-prop-btn');
+      createBtn.addEventListener('click', async () => {
+        const label = (newPropInput.value || '').trim();
+        if (!label) return;
+        createBtn.disabled = true;
+        createBtn.textContent = 'Creating...';
+        try {
+          const r = await fetch('/api/hubspot/create-property', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ label })
+          });
+          const data = await r.json().catch(() => ({}));
+          if (!r.ok) {
+            alert(data.error || 'Failed to create property');
+            return;
+          }
+          hubspotProperties = [];
+          await loadHubspotProperties();
+          const newProp = { name: data.name, label: data.label };
+          setGlobalQuestionMapping(eventId, questionId, newProp);
+          root.remove();
+          if (onSave) onSave();
+        } catch (err) {
+          alert(err.message || 'Failed to create property');
+        } finally {
+          createBtn.disabled = false;
+          createBtn.textContent = 'Create';
+        }
+      });
+      dd.appendChild(ul);
+      dd.appendChild(createRow);
+      loadHubspotProperties().then(() => {
+        if (hubspotProperties.length === 0) {
+          ul.innerHTML = '<li style="color:var(--text-muted);padding:1rem;">No HubSpot properties found. Check CustomCode in .env.</li>';
+        } else {
+          renderList();
+          searchInput.addEventListener('input', () => renderList(searchInput.value));
+        }
+        searchInput.focus();
+      });
+      root.appendChild(dd);
+      document.body.appendChild(root);
+    }
+
+    async function fetchJson(url) {
+      const r = await fetch(url);
+      const text = await r.text();
+      try {
+        return { ok: r.ok, data: text ? JSON.parse(text) : {} };
+      } catch {
+        return { ok: false, data: { error: r.ok ? 'Invalid response' : `Server error (${r.status}). The server may have returned HTML instead of JSON.` } };
+      }
+    }
+
+    function renderEventsTable(filter) {
+      const q = (filter || '').toLowerCase().trim();
+      const filtered = eventsData.filter(e => {
+        const name = (e.name || e.title || '').toLowerCase();
+        const code = (e.eventCode || e.code || '').toLowerCase();
+        return !q || name.includes(q) || code.includes(q);
+      });
+      if (filtered.length === 0) {
+        eventsEl.innerHTML = '<p>No events match your search.</p>';
+        return;
+      }
+      const attendeeIconSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>';
+      const hubspotIconSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 0 0-9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/><path d="M3 12a9 9 0 0 0 9 9 9.75 9.75 0 0 0 6.74-2.74L21 16"/><path d="M16 21h5v-5"/></svg>';
+      let html = `<p>${filtered.length} event(s)${q ? ' matching "' + escapeHtml(q) + '"' : ''}.</p><div class="table-wrap"><table class="data-table table-events"><thead><tr><th>Name</th><th>Event Code</th><th>Start</th><th>Actions</th></tr></thead><tbody>`;
+      filtered.forEach(event => {
+        const id = event.id || '';
+        const name = event.name || event.title || '—';
+        const code = event.eventCode || event.code || '—';
+        const startRaw = event.start || event.startDate || '';
+        const start = formatDate(startRaw);
+        const status = setupStatusMap[id];
+        const setupBtnHtml = status === 'loading'
+          ? '<span class="loading" style="width:20px;height:20px;margin:0;"></span>'
+          : status ? `<button type="button" class="setup-btn" data-id="${escapeHtml(id)}" data-name="${escapeHtml(name)}" title="HubSpot Setup (admission items, quantity products, questions)"><span class="setup-dot ${status}"></span></button>` : '<span style="color:var(--text-muted);">—</span>';
+        html += `<tr class="event-row" data-id="${escapeHtml(id)}" data-name="${escapeHtml(name)}"><td class="cell-truncate" title="${escapeHtml(name)}">${escapeHtml(name)}</td><td>${escapeHtml(code)}</td><td>${escapeHtml(start)}</td><td><div class="event-actions-cell">${setupBtnHtml}<button type="button" class="attendee-icon-btn" data-id="${escapeHtml(id)}" data-name="${escapeHtml(name)}" title="View attendees">${attendeeIconSvg}</button><button type="button" class="hubspot-sync-btn" data-id="${escapeHtml(id)}" data-name="${escapeHtml(name)}" title="Sync to HubSpot (coming soon)">${hubspotIconSvg}</button></div></td></tr>`;
+      });
+      html += '</tbody></table></div>';
+      eventsEl.innerHTML = html;
+      eventsEl.querySelectorAll('.setup-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => { e.stopPropagation(); loadSetup(btn.dataset.id, btn.dataset.name); });
+      });
+      eventsEl.querySelectorAll('.attendee-icon-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => { e.stopPropagation(); loadAttendees(btn.dataset.id, btn.dataset.name); });
+      });
+    }
+
+    document.getElementById('open-question-mappings')?.addEventListener('click', () => showScreen('question-mappings'));
+
+    fetchJson('/api/events')
+      .then(async ({ ok, data }) => {
+        if (data.error) {
+          eventsEl.innerHTML = `<div class="error-msg">${escapeHtml(data.error)}</div><p>Ensure your Cvent app has the <code>event/events:read</code> scope in the Developer Portal.</p>`;
+          return;
+        }
+        eventsData = data.events || [];
+        if (eventsData.length === 0) {
+          eventsEl.innerHTML = '<p>No events found.</p>';
+          return;
+        }
+        eventsData.sort((a, b) => {
+          const da = a.start || a.startDate || '';
+          const db = b.start || b.startDate || '';
+          return new Date(db) - new Date(da);
+        });
+        eventsData.forEach(e => { setupStatusMap[e.id] = 'loading'; });
+        renderEventsTable(eventSearch.value);
+        eventSearch.addEventListener('input', () => renderEventsTable(eventSearch.value));
+
+        await loadHubspotEvents();
+        const attendeePromises = eventsData.map(ev => fetchJson(`/api/events/${encodeURIComponent(ev.id)}/attendees`));
+        const results = await Promise.all(attendeePromises);
+        eventsData.forEach((ev, i) => {
+          const { data } = results[i] || {};
+          const admissionItems = data?.admission_items || [];
+          const regQuestions = data?.registration_questions || [];
+          const quantityItems = data?.quantity_items || [];
+          setupStatusMap[ev.id] = computeSetupStatus(ev.id, admissionItems, regQuestions, quantityItems);
+        });
+        renderEventsTable(eventSearch.value);
+      })
+      .catch(err => {
+        eventsEl.innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;
+      });
+
+    function loadSetup(eventId, eventName) {
+      currentEventId = eventId;
+      currentEventName = eventName || eventId;
+      setupEventName.textContent = currentEventName;
+      setupEventId.textContent = 'Event ID: ' + (eventId || '—');
+      showScreen('setup');
+      setupContent.innerHTML = '<span class="loading"></span>Loading...';
+
+      Promise.all([
+        fetchJson(`/api/events/${encodeURIComponent(eventId)}/attendees`),
+        loadHubspotEvents()
+      ]).then(([{ ok, data }, _]) => {
+          if (data.error) {
+            setupContent.innerHTML = `<div class="error-msg">${escapeHtml(data.error)}</div>`;
+            return;
+          }
+          const admissionItems = data.admission_items || [];
+          const quantityItems = data.quantity_items || [];
+          const regQuestions = data.registration_questions || [];
+          const registrationTypes = data.registration_types || [];
+          const registrationPaths = data.registration_paths || [];
+          let html = '';
+
+          if (registrationTypes.length > 0) {
+            html += '<div class="section-card"><h3>Registration types</h3>';
+            html += '<p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Attendee type (e.g. Paying Delegate, Speaker). Available for this event.</p>';
+            html += '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;">';
+            registrationTypes.forEach(t => {
+              html += `<span class="admission-events-badge">${escapeHtml(t)}</span>`;
+            });
+            html += '</div></div>';
+          }
+          if (registrationPaths.length > 0) {
+            html += '<div class="section-card"><h3>Registration paths</h3>';
+            html += '<p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">How the attendee registered (e.g. Public, Invite only). Available for this event.</p>';
+            html += '<div style="display:flex;flex-wrap:wrap;gap:0.5rem;">';
+            registrationPaths.forEach(p => {
+              html += `<span class="admission-events-badge">${escapeHtml(p)}</span>`;
+            });
+            html += '</div></div>';
+          }
+
+          if (admissionItems.length > 0) {
+            html += '<div class="section-card"><h3>Admission Items</h3><div class="table-wrap"><table class="data-table" style="min-width:550px;"><thead><tr><th>Code</th><th>Name</th><th>HubSpot events</th></tr></thead><tbody>';
+            admissionItems.forEach(ai => {
+              const aiId = String(ai.id || '');
+              const linkedEvents = hubspotEvents.filter(e => (e.admission_item_ids || []).includes(aiId));
+              const badgesHtml = linkedEvents.length > 0
+                ? '<div class="admission-events-badges">' + linkedEvents.map(e => `<span class="admission-events-badge">${escapeHtml(e.full_name || '—')}</span>`).join('') + '</div>'
+                : '';
+              html += `<tr><td class="mono" style="width:100px;">${escapeHtml(ai.code || '—')}</td><td>${escapeHtml(ai.name || '—')}</td><td><div class="admission-events-cell">${badgesHtml}<button type="button" class="map-btn" data-ai-id="${escapeHtml(aiId)}" data-ai-name="${escapeHtml(ai.name || '')}" data-ai-code="${escapeHtml(ai.code || '')}" title="Associate with HubSpot events">+</button></div></td></tr>`;
+            });
+            html += '</tbody></table></div></div>';
+          }
+
+          if (quantityItems.length > 0) {
+            html += '<div class="section-card"><h3>Quantity items</h3>';
+            html += '<p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">From Cvent <strong>GET /events/{id}/quantity-items</strong> (requires <code>event/quantity-items:read</code>), plus <strong>QuantityItem</strong> rows on event products and any order line items. Map each row to a <strong>HubSpot Product</strong> (name + SKU) for this event — stored in the browser only.</p>';
+            html += '<div class="table-wrap"><table class="data-table" style="min-width:720px;"><thead><tr><th>Code</th><th>Name</th><th>Cvent product ID</th><th>HubSpot product</th></tr></thead><tbody>';
+            const qtyProdMap = getGlobalQuantityProductMappings();
+            quantityItems.forEach(qi => {
+              const qid = String(qi.id || '');
+              const mapKey = eventId && qid ? eventId + ':' + qid : '';
+              const pm = mapKey ? qtyProdMap[mapKey] : null;
+              const prodLabel = pm ? `${pm.name || '—'}${pm.sku ? ' (SKU: ' + pm.sku + ')' : ''}` : '';
+              const mapCell = qid
+                ? `<div class="map-cell"><button type="button" class="map-btn ${pm ? 'mapped' : ''}" data-qty-id="${escapeHtml(qid)}" title="Map to HubSpot product">+</button><span class="mapped-label">${escapeHtml(prodLabel || 'Not mapped')}</span></div>`
+                : '<span class="mapped-label" style="color:var(--text-muted);">No ID — cannot map</span>';
+              html += `<tr><td class="mono" style="width:100px;">${escapeHtml(qi.code || '—')}</td><td>${escapeHtml(qi.name || '—')}</td><td class="mono" style="font-size:0.8rem;">${escapeHtml(qid || '—')}</td><td>${mapCell}</td></tr>`;
+            });
+            html += '</tbody></table></div></div>';
+          }
+
+          if (regQuestions.length > 0) {
+            html += '<div class="section-card"><h3>Registration questions</h3>';
+            html += '<p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Map questions to HubSpot Attendee properties. Mappings are per-event (keyed by question ID).</p>';
+            html += '<div class="table-wrap"><table class="data-table" style="min-width:750px;"><thead><tr><th>Question</th><th>Question code</th><th>HubSpot property</th><th>Sample answers</th></tr></thead><tbody>';
+            regQuestions.forEach(q => {
+              const samples = (q.sample_values || []).slice(0, 5).join('; ');
+              const qid = q.id || '';
+              const qcode = (q.code || '').trim() || '—';
+              const qtext = (q.text || '').trim() || '—';
+              const mappings = getGlobalQuestionMappings();
+              const mapKey = eventId && qid ? eventId + ':' + qid : '';
+              const mapping = mapKey ? mappings[mapKey] : null;
+              const mappedLabel = mapping ? mapping.label : '';
+              html += `<tr><td style="width:280px;"><div style="font-size:0.9rem;word-break:break-word;">${escapeHtml(qtext)}</div><div class="mono" style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">${escapeHtml(qid)}</div></td><td class="mono" style="width:180px;font-size:0.8rem;">${escapeHtml(qcode)}</td><td><div class="map-cell"><button type="button" class="map-btn ${mapping ? 'mapped' : ''}" data-qid="${escapeHtml(qid)}" title="Map to HubSpot property">+</button><span class="mapped-label">${escapeHtml(mappedLabel || 'Not mapped')}</span></div></td><td>${escapeHtml(samples || '—')}</td></tr>`;
+            });
+            html += '</tbody></table></div></div>';
+          }
+
+          if (html === '') html = '<p>No admission items, quantity items, registration types/paths, or registration questions for this event.</p>';
+          setupContent.innerHTML = html;
+          setupStatusMap[eventId] = computeSetupStatus(eventId, admissionItems, regQuestions, quantityItems);
+
+          setupContent.querySelectorAll('.map-btn[data-qty-id]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              openProductMapDropdown(eventId, btn.dataset.qtyId, btn);
+            });
+          });
+          setupContent.querySelectorAll('.map-btn[data-qid]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              openMapDropdown(eventId, btn, btn.dataset.qid);
+            });
+          });
+          setupContent.querySelectorAll('.map-btn[data-ai-id]').forEach(btn => {
+            btn.addEventListener('click', (e) => {
+              e.stopPropagation();
+              openEventDropdown(btn, { id: btn.dataset.aiId, name: btn.dataset.aiName, code: btn.dataset.aiCode });
+            });
+          });
+        })
+        .catch(err => {
+          setupContent.innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;
+        });
+    }
+
+    function loadAttendees(eventId, eventName) {
+      currentEventId = eventId;
+      currentEventName = eventName || eventId;
+      selectedEventName.textContent = currentEventName;
+      showScreen('attendees');
+      attendeesContent.innerHTML = '<span class="loading"></span>Loading attendees...';
+
+      Promise.all([
+        fetchJson(`/api/events/${encodeURIComponent(eventId)}/attendees`),
+        loadHubspotEvents()
+      ]).then(([{ ok, data }, _]) => {
+          if (data.error) {
+            attendeesContent.innerHTML = `<div class="error-msg">${escapeHtml(data.error)}</div>`;
+            return;
+          }
+          const attendees = data.attendees || [];
+          if (attendees.length === 0) {
+            attendeesContent.innerHTML = '<p>No attendees found for this event.</p>';
+            return;
+          }
+
+          let html = '<div class="section-card"><h3>Attendees</h3>';
+          html += `<p style="margin-bottom:1rem;">${attendees.length} attendee(s) found. Click an attendee to view details.</p>`;
+          html += '<div class="table-wrap"><table class="data-table table-attendees"><thead><tr><th>Attendee ID</th><th>Name</th><th>Email</th><th>Type</th><th>Status</th><th>Last updated</th><th>Admission Item</th><th>Orders</th></tr></thead><tbody>';
+          attendees.forEach(a => {
+            const aid = a.id || '—';
+            const contact = a.contact || {};
+            const name = [contact.firstName, contact.lastName].filter(Boolean).join(' ') || a.name || '—';
+            const email = contact.email || a.email || '—';
+            const regType = (a.registrationType || {}).name || (a.registrationPath || {}).name || '—';
+            const status = a.status || '—';
+            const lastMod = a.lastModified || a.attendeeLastModified || '';
+            const lastModFmt = lastMod ? formatDateTime(lastMod) : '—';
+            const admission = a._admission_item || (a.admissionItem || {}).name || '—';
+            const ordersCount = a._orders_count !== undefined ? String(a._orders_count) : '—';
+            html += `<tr class="attendee-row" data-attendee-id="${escapeHtml(String(aid))}"><td class="mono cell-truncate" title="${escapeHtml(String(aid))}">${escapeHtml(String(aid))}</td><td>${escapeHtml(name)}</td><td class="cell-truncate" title="${escapeHtml(email)}">${escapeHtml(email)}</td><td>${escapeHtml(regType)}</td><td>${escapeHtml(String(status))}</td><td>${escapeHtml(lastModFmt)}</td><td class="cell-truncate" title="${escapeHtml(admission)}">${escapeHtml(admission)}</td><td>${escapeHtml(ordersCount)}</td></tr>`;
+          });
+          html += '</tbody></table></div></div>';
+          attendeesContent.innerHTML = html;
+
+          attendeesContent.querySelectorAll('.attendee-row').forEach(row => {
+            row.addEventListener('click', () => {
+              attendeesContent.querySelectorAll('.attendee-row').forEach(r => r.classList.remove('selected'));
+              row.classList.add('selected');
+              loadAttendeeDetail(row.dataset.attendeeId);
+            });
+          });
+        })
+        .catch(err => {
+          attendeesContent.innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;
+        });
+    }
+
+    function loadAttendeeDetail(attendeeId) {
+      currentAttendeeId = attendeeId;
+      showScreen('detail');
+      attendeeDetailContent.innerHTML = '<span class="loading"></span>Loading...';
+      orderDetailContent.innerHTML = '';
+
+      fetch('/api/lookup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ cvent_attendee_id: attendeeId, cvent_event_id: currentEventId })
+      })
+        .then(r => r.text())
+        .then(text => {
+          let data;
+          try { data = text ? JSON.parse(text) : {}; } catch { data = { error: 'Invalid response' }; }
+          renderAttendeeDetail(data.attendee || {}, data.hubspot_attendee || {});
+          renderOrderDetail(data.order || {});
+        })
+        .catch(err => {
+          attendeeDetailContent.innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;
+        });
+    }
+
+    function renderValue(val) {
+      if (val === undefined || val === null || val === '') return '<span class="value empty">—</span>';
+      return `<span class="value">${escapeHtml(String(val))}</span>`;
+    }
+
+    const syncIconSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>';
+
+    function renderAttendeeDetail(a, hubspotAttendee) {
+      const canSync = a.attendee_exists === 'Yes' && (a.email || '').trim();
+      let html = a.attendee_lookup_error ? `<div class="error-msg">${escapeHtml(a.attendee_lookup_error)}</div>` : '';
+      html += '<div class="attendee-detail-header">';
+      html += '<span></span>';
+      html += canSync
+        ? `<button type="button" class="hubspot-sync-btn" id="btn-sync-hubspot" title="Sync with HubSpot">${syncIconSvg}</button>`
+        : '';
+      html += '</div>';
+      const items = [
+        { label: 'Attendee exists', value: a.attendee_exists, badge: true },
+        { label: 'Matching attendee ID', value: a.matching_attendee_id },
+        { label: 'Attendee name', value: a.attendee_name },
+        { label: 'Registration status', value: a.registration_status, badge: a.registration_status === 'Accepted' },
+        { label: 'Checked in', value: a.checked_in, badge: true },
+        { label: 'Attendee type', value: a.registration_type },
+        { label: 'Registration path', value: a.registration_path },
+        { label: 'Admission item', value: a.admission_item },
+        { label: 'Cvent event ID', value: a.cvent_event_id },
+        { label: 'Last updated (Cvent)', value: a.last_modified ? formatDateTime(a.last_modified) : '—' },
+        { label: 'Created (Cvent)', value: a.created ? formatDateTime(a.created) : '—' },
+      ];
+      html += '<div class="section-card"><h3>Attendee details</h3><div class="result-grid">';
+      items.forEach(({ label, value, badge }) => {
+        html += `<div class="result-item"><span class="label">${escapeHtml(label)}</span>`;
+        if (label === 'Registration status' && (value || '').toString().toLowerCase() === 'accepted')
+          html += '<span class="badge yes">Accepted</span>';
+        else if (label === 'Registration status' && value)
+          html += `<span class="badge no">${escapeHtml(String(value))}</span>`;
+        else if (badge && (value === 'Yes' || value === 'No'))
+          html += `<span class="badge ${value.toLowerCase()}">${escapeHtml(value)}</span>`;
+        else
+          html += renderValue(value);
+        html += '</div>';
+      });
+      html += '</div></div>';
+      if (a.answers && a.answers.length > 0) {
+        const mappings = getGlobalQuestionMappings();
+        html += '<div class="section-card"><h3>Registration answers</h3><div class="result-grid">';
+        a.answers.forEach(ans => {
+          const qid = ans.question_id || '';
+          const mapKey = currentEventId && qid ? currentEventId + ':' + qid : '';
+          const mapping = mapKey ? mappings[mapKey] : null;
+          const qLabel = mapping ? mapping.label : (ans.question_text || qid || 'Question');
+          const displayVal = (mapping && hubspotAttendee && hubspotAttendee[mapping.name] != null && hubspotAttendee[mapping.name] !== '')
+            ? hubspotAttendee[mapping.name] : ans.value;
+          html += `<div class="result-item"><span class="label" title="${escapeHtml(qid || '')}">${escapeHtml(qLabel)}<span class="mono" style="font-size:0.7rem;color:var(--text-muted);display:block;margin-top:0.15rem;">${escapeHtml(qid)}</span></span>${renderValue(displayVal)}</div>`;
+        });
+        html += '</div></div>';
+      }
+      attendeeDetailContent.innerHTML = html;
+      const syncBtn = document.getElementById('btn-sync-hubspot');
+      if (syncBtn) {
+        syncBtn.onclick = () => runHubSpotSync();
+      }
+    }
+
+    function renderSyncReportBody(data) {
+      let content = '';
+      if (data.phantom_ignored) {
+        content += '<div class="sync-section" style="background:rgba(139,156,179,0.2);border-left:3px solid var(--text-muted);"><div class="sync-section-title">Phantom transaction</div><div class="sync-section-content"><p style="margin:0;">This transaction is ignored – same amount and admission item as an earlier transaction. No changes are made for this step.</p></div></div>';
+        return content;
+      }
+      if (data.transaction_step_intro) {
+        content += '<p class="sync-step-intro">' + escapeHtml(data.transaction_step_intro) + '</p>';
+      }
+      if (data.warnings && data.warnings.length > 0) {
+        content += '<div class="sync-section" style="background:rgba(245,158,11,0.12);border-left:3px solid #f59e0b;"><div class="sync-section-title" style="color:#f59e0b;">Warnings</div><div class="sync-section-content"><ul style="margin:0;padding-left:1.25rem;">';
+        data.warnings.forEach(w => { content += '<li>' + escapeHtml(w) + '</li>'; });
+        content += '</ul></div></div>';
+      }
+      content += '<div class="sync-section"><div class="sync-section-title">Contact</div><div class="sync-section-content">';
+      if (data.contact && data.contact.found) {
+        content += `<div class="result-item"><span class="label">Status</span><span class="value">Found (ID: ${escapeHtml(String(data.contact.id || '—'))})</span></div>`;
+        content += `<div class="result-item"><span class="label">Email</span><span class="value">${escapeHtml(data.contact.email || data.email || '—')}</span></div>`;
+      } else {
+        content += '<div class="result-item"><span class="label">Status</span><span class="value empty">Not found – would create</span></div>';
+        const cp = data.contact && data.contact.properties ? data.contact.properties : {};
+        content += `<div class="result-item"><span class="label">firstname</span><span class="value">${escapeHtml(cp.firstname || '—')}</span></div>`;
+        content += `<div class="result-item"><span class="label">lastname</span><span class="value">${escapeHtml(cp.lastname || '—')}</span></div>`;
+        content += `<div class="result-item"><span class="label">email</span><span class="value">${escapeHtml(cp.email || data.email || '—')}</span></div>`;
+      }
+      content += '</div></div>';
+      content += '<div class="sync-section"><div class="sync-section-title">Attendee</div><div class="sync-section-content">';
+      if (data.attendee && data.attendee.found) {
+        content += `<div class="result-item"><span class="label">Status</span><span class="value">Found (ID: ${escapeHtml(String(data.attendee.id || '—'))})</span></div>`;
+      } else {
+        content += '<div class="result-item"><span class="label">Status</span><span class="value empty">Not found – would create and associate</span></div>';
+      }
+      if (data.attendee_properties && Object.keys(data.attendee_properties).length > 0) {
+        content += '<div class="result-item" style="margin-top:0.5rem;"><span class="label">Properties to set</span></div>';
+        content += '<div class="sync-props-grid" style="display:grid;grid-template-columns:1fr 1fr;gap:0.35rem 1rem;margin-top:0.25rem;font-size:0.8rem;">';
+        for (const [prop, val] of Object.entries(data.attendee_properties)) {
+          const displayVal = val === null || val === undefined ? '—' : String(val);
+          content += `<div class="result-item"><span class="label" style="font-size:0.7rem;">${escapeHtml(prop)}</span><span class="value mono" style="word-break:break-all;">${escapeHtml(displayVal)}</span></div>`;
+        }
+        content += '</div>';
+      } else {
+        content += '<div class="result-item"><span class="label">Properties</span><span class="value empty">None (all values empty)</span></div>';
+      }
+      content += '</div></div>';
+      content += '<div class="sync-section"><div class="sync-section-title">Event</div><div class="sync-section-content">';
+      content += `<div class="result-item"><span class="label">Admission item</span><span class="value">${escapeHtml(data.admission_item || '—')}</span></div>`;
+      if (data.event_associations && data.event_associations.length > 0) {
+        const byLabel = {};
+        (data.event_associations || []).forEach(ea => {
+          const ln = ea.label_name || 'Unknown';
+          if (!byLabel[ln]) byLabel[ln] = [];
+          byLabel[ln].push(ea);
+        });
+        content += '<div class="result-item"><span class="label">Event(s) to associate</span></div>';
+        for (const [label, events] of Object.entries(byLabel)) {
+          content += `<div class="result-item" style="margin-left:1rem;"><span class="label" style="font-size:0.75rem;">${escapeHtml(label)}</span><span class="value" style="font-size:0.85rem;">`;
+          content += events.map(ea => {
+            const name = escapeHtml(ea.full_name || 'Event ' + ea.event_id);
+            const festivals = (ea.festivals || []).filter(f => f && (f.festival_code || f.id));
+            if (festivals.length > 0) {
+              const fNames = festivals.map(f => escapeHtml(f.festival_code || 'Festival ' + f.id)).join(', ');
+              return name + ' <span style="color:var(--text-muted);font-size:0.8em;">(→ Festival: ' + fNames + ')</span>';
+            }
+            return name;
+          }).join(', ');
+          content += '</span></div>';
+        }
+      } else if (data.admission_item_id) {
+        content += '<div class="result-item"><span class="label">Event(s) to associate</span><span class="value empty">None – no event paired with this admission item in settings</span></div>';
+      } else {
+        content += '<div class="result-item"><span class="label">Event(s) to associate</span><span class="value empty">Attendee has no admission item</span></div>';
+      }
+      content += '</div></div>';
+      content += '<div class="sync-section"><div class="sync-section-title">Sponsor</div><div class="sync-section-content">';
+      if (data.sponsor_associations && data.sponsor_associations.length > 0) {
+        content += '<div class="result-item"><span class="label">Sponsor(s) to associate</span><span class="value">';
+        content += data.sponsor_associations.map(s => escapeHtml(s.name || 'Sponsor ' + s.id)).join(', ');
+        content += '</span></div>';
+      } else {
+        content += '<div class="result-item"><span class="label">Sponsor(s) to associate</span><span class="value empty">None</span></div>';
+      }
+      content += '</div></div>';
+      content += '<div class="sync-section"><div class="sync-section-title">Festival</div><div class="sync-section-content">';
+      if (data.festival_associations && data.festival_associations.length > 0) {
+        content += '<div class="result-item"><span class="label">Festival(s) to associate</span><span class="value">';
+        content += data.festival_associations.map(f => escapeHtml(f.festival_code || 'Festival ' + f.id)).join(', ');
+        content += '</span></div>';
+        content += '<p style="margin:0.25rem 0 0;font-size:0.8rem;color:var(--text-muted);">Attendee would be associated to these festivals (from each event’s festival).</p>';
+      } else {
+        content += '<div class="result-item"><span class="label">Festival(s) to associate</span><span class="value empty">None</span></div>';
+      }
+      content += '</div></div>';
+      content += '<div class="sync-section"><div class="sync-section-title">Deal</div><div class="sync-section-content">';
+      content += `<div class="result-item"><span class="label">Registration status</span><span class="value">${escapeHtml(data.registration_status || '—')}</span></div>`;
+      const dc = data.deal_conditions || {};
+      content += '<div class="result-item"><span class="label">Conditions</span></div>';
+      content += `<div class="result-item" style="margin-left:1rem;"><span class="label" style="font-size:0.75rem;">Accepted</span><span class="value">${dc.is_accepted ? 'Yes' : 'No'}</span></div>`;
+      content += `<div class="result-item" style="margin-left:1rem;"><span class="label" style="font-size:0.75rem;">Admission/quantity &gt; 0</span><span class="value">${dc.has_positive_amount ? 'Yes' : 'No'}</span></div>`;
+      content += `<div class="result-item" style="margin-left:1rem;"><span class="label" style="font-size:0.75rem;">Reference ID without DelSale</span><span class="value">${dc.ref_no_delsale ? 'Yes' : 'No'}</span></div>`;
+      const scenario = data.deal_scenario || 'standard';
+      if (scenario === 'paying_delegate_upgrade') {
+        content += '<div class="result-item" style="margin-top:0.5rem;"><span class="label">Scenario</span><span class="value">Paying delegate upgrade (split total across both deals)</span></div>';
+      } else if (scenario === 'speaker_upgrade') {
+        content += '<div class="result-item" style="margin-top:0.5rem;"><span class="label">Scenario</span><span class="value">Speaker upgrade</span></div>';
+        if (data.speaker_event_answer) {
+          content += `<div class="result-item" style="margin-left:1rem;"><span class="label" style="font-size:0.75rem;">Which event as speaker</span><span class="value" style="font-size:0.85rem;">${escapeHtml(data.speaker_event_answer)}</span></div>`;
+        }
+      } else if (scenario === 'sponsor_upgrade') {
+        content += '<div class="result-item" style="margin-top:0.5rem;"><span class="label">Scenario</span><span class="value">Sponsor upgrade (Sponsor Client/Executive)</span></div>';
+      }
+      if (data.tax_breakdown) {
+        const tb = data.tax_breakdown || {};
+        const admissionTax = (scenario === 'paying_delegate_upgrade') ? tb.tax_admission_total : tb.tax_admission_current;
+        const qtyTax = tb.tax_quantity_current_total;
+        const admissionText = admissionTax != null ? '£' + Number(admissionTax).toFixed(2) : '—';
+        const qtyText = qtyTax != null ? '£' + Number(qtyTax).toFixed(2) : '—';
+        content += `<div class="result-item" style="margin-top:0.5rem;"><span class="label">Tax split</span><span class="value">Admission: ${escapeHtml(admissionText)} · Quantity: ${escapeHtml(qtyText)}</span></div>`;
+      }
+      if (data.deal_conditions_met && data.deal_plan && data.deal_plan.length > 0) {
+        const actionLabel = scenario === 'paying_delegate_upgrade' ? ' (amend existing / create)' : (scenario === 'speaker_upgrade' || scenario === 'sponsor_upgrade' ? ' (create for new event)' : '');
+        content += `<div class="result-item" style="margin-top:0.5rem;"><span class="label">Deals</span><span class="value">${data.deal_plan.length} deal(s)${actionLabel}</span></div>`;
+        data.deal_plan.forEach((d) => {
+          const action = d.action === 'update_existing' ? ' [amend existing]' : (d.action === 'create' ? ' [create]' : '');
+          const sim = d.simulated_from_step_1 ? ' (simulated from step 1)' : '';
+          const amtPart = d.amount != null ? ' · £' + Number(d.amount).toFixed(2) : '';
+          const taxPart = d.tax_amount != null ? ' · Tax: £' + Number(d.tax_amount).toFixed(2) : '';
+          const prodPart = (d.component === 'quantity' && d.product_name) ? ' · Product: ' + escapeHtml(d.product_name) + (d.product_sku ? ' (' + escapeHtml(d.product_sku) + ')' : '') : '';
+          content += `<div class="result-item" style="margin-left:1rem;margin-top:0.35rem;"><span class="label" style="font-size:0.75rem;">${escapeHtml(d.event_name || 'Event')}${action}${sim}</span><span class="value mono" style="font-size:0.85rem;">${escapeHtml(d.dealname || '—')}${amtPart}${taxPart}${prodPart}</span></div>`;
+        });
+      } else if (!data.deal_conditions_met) {
+        content += '<div class="result-item" style="margin-top:0.5rem;"><span class="label">Would create deal</span><span class="value empty">No – conditions not met</span></div>';
+      } else {
+        content += '<div class="result-item" style="margin-top:0.5rem;"><span class="label">Would create deal</span><span class="value empty">No – no events to associate to</span></div>';
+      }
+      content += '</div></div>';
+      if (data.actions && data.actions.length) {
+        content += '<p style="margin-top:1rem;font-weight:600;font-size:0.8rem;">Planned actions</p><ul style="font-size:0.85rem;">';
+        data.actions.forEach(act => { content += `<li>${escapeHtml(act)}</li>`; });
+        content += '</ul>';
+      }
+      return content;
+    }
+
+    async function runHubSpotSync(training = true) {
+      if (!currentAttendeeId || !currentEventId) return;
+      const overlay = document.getElementById('sync-modal-overlay');
+      const body = document.getElementById('sync-modal-body');
+      const runBtn = document.getElementById('sync-run-btn');
+      if (runBtn) { runBtn.classList.add('loading'); runBtn.disabled = true; }
+      body.innerHTML = '<p style="color:var(--text-muted);">Running sync…</p>';
+      overlay.style.display = 'flex';
+      try {
+        const qtyProdAll = getGlobalQuantityProductMappings();
+        const qtyItemProductMappings = {};
+        Object.entries(qtyProdAll).forEach(([k, v]) => {
+          const parts = String(k).split(':');
+          const evId = parts[0];
+          const qiId = parts.slice(1).join(':');
+          if (String(evId) === String(currentEventId) && qiId) {
+            qtyItemProductMappings[String(qiId)] = v;
+          }
+        });
+        const r = await fetch('/api/hubspot/sync-attendee', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            cvent_attendee_id: currentAttendeeId,
+            cvent_event_id: currentEventId,
+            training: training,
+            quantity_item_product_mappings: qtyItemProductMappings,
+          })
+        });
+        const data = r.ok ? await r.json() : { error: (await r.text()) || 'Request failed' };
+        renderSyncResult(data, body);
+      } catch (err) {
+        body.innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;
+      } finally {
+        if (runBtn) { runBtn.classList.remove('loading'); runBtn.disabled = false; }
+      }
+    }
+
+    function renderSyncResult(data, body) {
+      let content = '';
+      if (data.error && !data.actions && !data.transaction_steps) {
+        content = `<div class="error-msg">${escapeHtml(data.error)}</div>`;
+        body.innerHTML = content;
+        return;
+      }
+      if (data.training_mode && data.transaction_steps && data.transaction_steps.length > 0) {
+        content = '<span class="training-badge">Training mode – no changes made</span>';
+        content += `<p style="margin-bottom:1rem;">${escapeHtml(data.message || '')}</p>`;
+        if (!data.is_accepted) {
+          content += '<div class="sync-not-accepted-banner">This attendee is not accepted so would not sync.</div>';
+          content += '<p>Below is what would have happened if they were accepted.</p>';
+        }
+        content += '<div class="sync-tabs">';
+        content += '<button type="button" class="sync-tab active" data-tab="0">All (current)</button>';
+        data.transaction_steps.forEach((s, i) => {
+          let label = 'After transaction ' + s.step + (s.date ? ' · ' + s.date : '');
+          if (s.report && s.report.phantom_ignored) label += ' (ignored – phantom)';
+          content += `<button type="button" class="sync-tab" data-tab="${i + 1}">${escapeHtml(label)}</button>`;
+        });
+        content += '</div>';
+        content += '<div id="sync-report-content" class="sync-report-content">' + renderSyncReportBody(data) + '</div>';
+        body.innerHTML = content;
+        body.querySelectorAll('.sync-tab').forEach((tabBtn) => {
+          tabBtn.addEventListener('click', function() {
+            body.querySelectorAll('.sync-tab').forEach(b => b.classList.remove('active'));
+            this.classList.add('active');
+            const tab = parseInt(this.getAttribute('data-tab'), 10);
+            const report = tab === 0 ? data : data.transaction_steps[tab - 1].report;
+            const el = document.getElementById('sync-report-content');
+            if (el) el.innerHTML = renderSyncReportBody(report);
+          });
+        });
+        return;
+      }
+      if (data.training_mode && !data.transaction_steps) {
+        content = '<span class="training-badge">Training mode – no changes made</span>';
+        content += `<p style="margin-bottom:1rem;">${escapeHtml(data.message || '')}</p>`;
+        content += renderSyncReportBody(data);
+        body.innerHTML = content;
+        return;
+      }
+      content = '<div class="sync-section"><div class="sync-section-title">Sync result</div><div class="sync-section-content">';
+      content += `<p style="margin-bottom:0.5rem;">${escapeHtml(data.message || 'Sync completed.')}</p>`;
+      if (data.contact_id) content += `<div class="result-item"><span class="label">Contact ID</span><span class="value mono">${escapeHtml(String(data.contact_id))}</span></div>`;
+      if (data.attendee_id) content += `<div class="result-item"><span class="label">Attendee ID</span><span class="value mono">${escapeHtml(String(data.attendee_id))}</span></div>`;
+      content += '</div></div>';
+      const steps = data.steps || [];
+      if (steps.length > 0) {
+        content += '<div class="sync-section"><div class="sync-section-title">Per transaction</div><div class="sync-section-content">';
+        steps.forEach((s) => {
+          const heading = 'Transaction ' + s.step + (s.date ? ' · ' + escapeHtml(s.date) : '');
+          content += `<p style="font-weight:600;margin:1rem 0 0.35rem;">${heading}</p><ul style="margin:0;padding-left:1.25rem;font-size:0.9rem;">`;
+          (s.actions || []).forEach(act => { content += `<li>${escapeHtml(act)}</li>`; });
+          if (s.errors && s.errors.length) (s.errors || []).forEach(e => { content += `<li class="error-msg" style="list-style:none;margin-left:-1.25rem;">${escapeHtml(e)}</li>`; });
+          content += '</ul>';
+        });
+        content += '</div></div>';
+      }
+      if (data.actions && data.actions.length > 0) {
+        content += '<p style="margin-top:1rem;font-weight:600;font-size:0.8rem;">All actions</p><ul style="font-size:0.85rem;">';
+        data.actions.forEach(act => { content += `<li>${escapeHtml(act)}</li>`; });
+        content += '</ul>';
+      }
+      if (data.errors && data.errors.length > 0) {
+        content += '<div class="error-msg" style="margin-top:1rem;"><strong>Errors</strong><ul style="margin:0.5rem 0 0;padding-left:1.25rem;">';
+        data.errors.forEach(e => { content += `<li>${escapeHtml(e)}</li>`; });
+        content += '</ul></div>';
+      }
+      body.innerHTML = content;
+    }
+
+    document.getElementById('sync-modal-close').addEventListener('click', () => {
+      document.getElementById('sync-modal-overlay').style.display = 'none';
+    });
+    document.getElementById('sync-modal-overlay').addEventListener('click', (e) => {
+      if (e.target.id === 'sync-modal-overlay') e.target.style.display = 'none';
+    });
+    document.getElementById('sync-run-btn').addEventListener('click', () => {
+      const training = document.querySelector('input[name="sync-mode"]:checked').value === 'training';
+      runHubSpotSync(training);
+    });
+
+    function renderOrderDetail(o) {
+      let html = '';
+      if (o.error) html += `<div class="error-msg">${escapeHtml(o.error)}</div>`;
+
+      const journey = o.user_journey || [];
+      if (journey.length > 0) {
+        html += '<div class="section-card"><h3>Purchase Journey</h3>';
+        html += '<div style="display:flex;flex-direction:column;gap:1rem;">';
+        journey.forEach((ord, i) => {
+          const amt = ord.amount_paid || ord.amount_ordered || '—';
+          const amtDisplay = amt === '—' ? '—' : '£' + amt;
+          const dateStr = ord.created ? ` · ${escapeHtml(ord.created)}` : '';
+          const discountInfo = ord.discount_codes ? ` · Discount: ${escapeHtml(ord.discount_codes)}` : '';
+          html += `<div class="card" style="padding:1rem;">`;
+          html += `<div style="font-weight:600;margin-bottom:0.5rem;">Order ${ord.order_number}${ord.order_ref ? ' · ' + escapeHtml(ord.order_ref) : ''}${dateStr} · ${escapeHtml(amtDisplay)}${discountInfo}</div>`;
+          html += '<ul style="margin:0;padding-left:1.25rem;font-size:0.9rem;">';
+          (ord.products || []).forEach(p => {
+            const amtStr = p.amount ? ' — £' + escapeHtml(p.amount) : '';
+            html += `<li>${escapeHtml(p.name || '—')} <span style="color:var(--text-muted);font-size:0.8rem;">${escapeHtml(p.type || '')}${amtStr}</span></li>`;
+          });
+          html += '</ul></div>';
+        });
+        html += '</div></div>';
+      }
+
+      const discountCodes = o.discount_codes || [];
+      const discountDisplay = discountCodes.length > 0
+        ? discountCodes.map(d => d.name ? `${d.code} (${d.name})` : d.code).join(', ')
+        : '—';
+      const items = [
+        { label: 'Order ID', value: o.order_id },
+        { label: 'Order number', value: o.order_number },
+        { label: 'Invoice number', value: o.invoice_number },
+        { label: 'Order type', value: o.order_type },
+        { label: 'Payment method', value: o.payment_method },
+        { label: 'Discount codes used', value: discountDisplay },
+        { label: 'Reference number', value: o.reference_number },
+        { label: 'Cancelled', value: o.cancelled },
+        { label: 'Amount ordered', value: o.amount_ordered },
+        { label: 'Amount paid', value: o.amount_paid },
+        { label: 'Amount due', value: o.amount_due },
+        { label: 'Admission item name', value: o.admission_item_name },
+        { label: 'Admission item amount paid', value: o.admission_item_amount_paid },
+        { label: 'Tax name', value: o.tax_name },
+        { label: 'Tax amount paid', value: o.tax_amount_paid },
+        { label: 'Orders count', value: o.orders_count },
+        { label: 'Order items count', value: o.order_items_count },
+      ];
+      html += '<div class="section-card"><h3>Order Summary</h3><div class="result-grid">';
+      items.forEach(({ label, value }) => {
+        html += `<div class="result-item"><span class="label">${escapeHtml(label)}</span>${renderValue(value)}</div>`;
+      });
+      html += '</div>';
+
+      const ordersList = o.orders || [];
+      const itemsList = o.order_items || [];
+      if (ordersList.length > 0 || itemsList.length > 0) {
+        html += '</div><div class="section-card"><h3>Transaction Details</h3>';
+        if (ordersList.length > 0) {
+          html += '<div style="overflow-x:auto;"><table class="data-table" style="min-width:800px;"><thead><tr><th>Order #</th><th>Invoice</th><th>Date</th><th>Discount code</th><th style="text-align:right;">Ordered</th><th style="text-align:right;">Paid</th><th style="text-align:right;">Due</th><th>Cancelled</th></tr></thead><tbody>';
+          const amt = (v) => v ? '£' + v : '—';
+          ordersList.forEach(ord => {
+            const cancelled = ord.cancelled ? 'Yes' : 'No';
+            const discount = ord.discount_codes || '—';
+            html += `<tr><td class="mono">${escapeHtml(ord.number || '—')}</td><td>${escapeHtml(ord.invoice_number || '—')}</td><td>${escapeHtml(ord.created || '—')}</td><td>${escapeHtml(discount)}</td><td style="text-align:right;">${escapeHtml(amt(ord.amount_ordered))}</td><td style="text-align:right;">${escapeHtml(amt(ord.amount_paid))}</td><td style="text-align:right;">${escapeHtml(amt(ord.amount_due))}</td><td>${cancelled}</td></tr>`;
+          });
+          html += '</tbody></table></div>';
+        }
+        if (itemsList.length > 0) {
+          html += '<h4 style="font-size:0.85rem;color:var(--text-muted);margin:1rem 0 0.5rem;">Line items</h4><div style="overflow-x:auto;"><table class="data-table" style="min-width:700px;"><thead><tr><th>Order #</th><th>Product</th><th>Type</th><th style="text-align:center;">Qty</th><th style="text-align:right;">Amount paid</th><th style="text-align:right;">Amount ordered</th></tr></thead><tbody>';
+          const amt = (v) => v ? '£' + v : '—';
+          itemsList.forEach(it => {
+            html += `<tr><td class="mono">${escapeHtml(it.order_number || '—')}</td><td>${escapeHtml(it.name || '—')}</td><td style="color:var(--text-muted);">${escapeHtml(it.product_type || '—')}</td><td style="text-align:center;">${escapeHtml(String(it.quantity ?? '—'))}</td><td style="text-align:right;">${escapeHtml(amt(it.amount_paid))}</td><td style="text-align:right;">${escapeHtml(amt(it.amount_ordered))}</td></tr>`;
+          });
+          html += '</tbody></table></div>';
+        }
+        if (o.orders_json && o.orders_json !== '[]') {
+          html += '<details style="margin-top:1rem;"><summary style="cursor:pointer;color:var(--text-muted);font-size:0.85rem;">Show raw JSON</summary><div class="json-block" style="margin-top:0.5rem;">' + escapeHtml(o.orders_json || '[]') + '</div>';
+          if (o.order_items_json && o.order_items_json !== '[]') html += '<div class="json-block" style="margin-top:0.5rem;">' + escapeHtml(o.order_items_json || '[]') + '</div>';
+          html += '</details>';
+        }
+      }
+      html += '</div>';
+      orderDetailContent.innerHTML = html;
+    }
+
+    function formatDate(isoStr) {
+      if (!isoStr) return '—';
+      try {
+        const d = new Date(isoStr);
+        if (isNaN(d.getTime())) return isoStr;
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = String(d.getFullYear()).slice(-2);
+        return `${day}/${month}/${year}`;
+      } catch {
+        return isoStr;
+      }
+    }
+    function formatDateTime(isoStr) {
+      if (!isoStr) return '—';
+      try {
+        const d = new Date(isoStr);
+        if (isNaN(d.getTime())) return isoStr;
+        const day = String(d.getDate()).padStart(2, '0');
+        const month = String(d.getMonth() + 1).padStart(2, '0');
+        const year = String(d.getFullYear()).slice(-2);
+        const hour = String(d.getHours()).padStart(2, '0');
+        const min = String(d.getMinutes()).padStart(2, '0');
+        return `${day}/${month}/${year} ${hour}:${min}`;
+      } catch {
+        return isoStr;
+      }
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+  </script>
+</body>
+</html>

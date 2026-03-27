@@ -1,0 +1,15 @@
+---
+description: Restart the Flask app after making changes to DM Cvent Integration
+globs: "**/*"
+alwaysApply: true
+---
+
+# DM Cvent Integration - Restart After Changes
+
+When editing files in this project (app.py, templates, .env, etc.), **always restart the Flask app** after making changes so the user can test the updates.
+
+Restart command:
+```bash
+kill -9 $(lsof -ti:5001) 2>/dev/null; sleep 2; cd "/Users/tga/Cursor/DM Cvent Integration" && python3 app.py
+```
+Run in background. The app runs on http://127.0.0.1:5001

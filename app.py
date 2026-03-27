@@ -312,6 +312,58 @@ def _sync_log_list(limit: int = 50) -> list:
         ]
 
 
+def _sync_log_latest_live_success_for_attendee(cvent_attendee_id: str) -> dict:
+    """
+    Return latest live sync log for attendee where status indicates actual sync occurred.
+    We treat success/partial as synced.
+    """
+    aid = str(cvent_attendee_id or "").strip()
+    if not aid:
+        return {}
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT created_at, actor_email, status, summary
+                        FROM sync_audit_logs
+                        WHERE cvent_attendee_id = %s
+                          AND mode = 'live'
+                          AND status IN ('success', 'partial')
+                        ORDER BY id DESC
+                        LIMIT 1
+                        """,
+                        (aid,),
+                    )
+                    r = cur.fetchone()
+                    if not r:
+                        return {}
+                    return {
+                        "timestamp": r[0].strftime("%Y-%m-%dT%H:%M:%SZ") if r[0] else "",
+                        "actor_email": r[1] or "unknown",
+                        "status": r[2] or "",
+                        "summary": r[3] or "",
+                    }
+        except Exception as e:
+            app.logger.warning("sync_log latest query failed, fallback to memory: %s", e)
+    with _sync_log_lock:
+        for x in _sync_logs:
+            if (
+                str(x.get("cvent_attendee_id") or "") == aid
+                and str(x.get("mode") or "").lower() == "live"
+                and str(x.get("status") or "").lower() in ("success", "partial")
+            ):
+                return {
+                    "timestamp": x.get("timestamp", ""),
+                    "actor_email": x.get("actor_email", "unknown"),
+                    "status": x.get("status", ""),
+                    "summary": x.get("summary", ""),
+                }
+    return {}
+
+
 def _send_otp_email(to_email: str, code: str) -> None:
     import ssl
     import smtplib
@@ -520,6 +572,28 @@ def sync_logs():
     return jsonify({
         "logs": _sync_log_list(limit=limit),
         "storage": "database" if DATABASE_URL else "memory",
+    })
+
+
+@app.route("/api/sync-status")
+def sync_status():
+    cvent_attendee_id = (request.args.get("cvent_attendee_id") or "").strip()
+    if not cvent_attendee_id:
+        return jsonify({"error": "cvent_attendee_id is required"}), 400
+    latest = _sync_log_latest_live_success_for_attendee(cvent_attendee_id)
+    if not latest:
+        return jsonify({
+            "synced_to_hubspot": False,
+            "last_synced_at": None,
+            "last_synced_by": None,
+            "status": None,
+        })
+    return jsonify({
+        "synced_to_hubspot": True,
+        "last_synced_at": latest.get("timestamp"),
+        "last_synced_by": latest.get("actor_email"),
+        "status": latest.get("status"),
+        "summary": latest.get("summary"),
     })
 
 

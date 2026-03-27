@@ -1086,16 +1086,19 @@
       attendeeDetailContent.innerHTML = '<span class="loading"></span>Loading...';
       orderDetailContent.innerHTML = '';
 
-      fetch('/api/lookup', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ cvent_attendee_id: attendeeId, cvent_event_id: currentEventId })
-      })
-        .then(r => r.text())
-        .then(text => {
-          let data;
-          try { data = text ? JSON.parse(text) : {}; } catch { data = { error: 'Invalid response' }; }
-          renderAttendeeDetail(data.attendee || {}, data.hubspot_attendee || {});
+      Promise.all([
+        fetch('/api/lookup', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ cvent_attendee_id: attendeeId, cvent_event_id: currentEventId })
+        }).then(r => r.text()).then(text => {
+          try { return text ? JSON.parse(text) : {}; } catch { return { error: 'Invalid response' }; }
+        }),
+        fetchJson(`/api/sync-status?cvent_attendee_id=${encodeURIComponent(attendeeId)}`)
+      ])
+        .then(([data, syncRes]) => {
+          const syncStatus = (syncRes && syncRes.data && !syncRes.data.error) ? syncRes.data : {};
+          renderAttendeeDetail(data.attendee || {}, data.hubspot_attendee || {}, syncStatus);
           renderOrderDetail(data.order || {});
         })
         .catch(err => {
@@ -1110,10 +1113,13 @@
 
     const syncIconSvg = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 2v6h-6"/><path d="M3 12a9 9 0 0 1 15-6.7L21 8"/><path d="M3 22v-6h6"/><path d="M21 12a9 9 0 0 1-15 6.7L3 16"/></svg>';
 
-    function renderAttendeeDetail(a, hubspotAttendee) {
+    function renderAttendeeDetail(a, hubspotAttendee, syncStatus) {
       // Always reset modal mode when opening a new attendee detail.
       setSyncMode('training');
       const canSync = a.attendee_exists === 'Yes' && (a.email || '').trim();
+      const synced = !!(syncStatus && syncStatus.synced_to_hubspot);
+      const lastSyncedAt = synced && syncStatus.last_synced_at ? formatDateTime(syncStatus.last_synced_at) : '—';
+      const lastSyncedBy = synced ? (syncStatus.last_synced_by || '—') : '—';
       let html = a.attendee_lookup_error ? `<div class="error-msg">${escapeHtml(a.attendee_lookup_error)}</div>` : '';
       html += '<div class="attendee-detail-header">';
       html += '<span></span>';
@@ -1127,6 +1133,9 @@
         { label: 'Attendee name', value: a.attendee_name },
         { label: 'Registration status', value: a.registration_status, badge: a.registration_status === 'Accepted' },
         { label: 'Checked in', value: a.checked_in, badge: true },
+        { label: 'Synced to HubSpot', value: synced ? 'Yes' : 'No', badge: true },
+        { label: 'Last synced (HubSpot)', value: lastSyncedAt },
+        { label: 'Last synced by', value: lastSyncedBy },
         { label: 'Attendee type', value: a.registration_type },
         { label: 'Registration path', value: a.registration_path },
         { label: 'Admission item', value: a.admission_item },

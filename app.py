@@ -97,6 +97,7 @@ ALLOWED_EMAILS = [e.strip().lower() for e in (ALLOWED_EMAILS_STR or "").split(",
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip() or None
 
 SESSION_COOKIE_NAME = "dm_cvent_session"
+OTP_COOKIE_NAME = "dm_cvent_otp"
 SESSION_MAX_AGE_SECONDS = 24 * 3600
 EMAIL_OTP_ENABLED = bool(SESSION_SECRET and SMTP_HOST and EMAIL_FROM)
 AUTH_ENABLED = bool(SESSION_SECRET and EMAIL_OTP_ENABLED)
@@ -185,6 +186,40 @@ def _set_session_cookie(response, email: str = ""):
         path="/",
     )
     return response
+
+
+def _set_otp_cookie(response, email: str, code: str):
+    ser = _session_serializer()
+    if not ser:
+        return response
+    token = ser.dumps({
+        "email": (email or "").strip().lower(),
+        "code": str(code or "").strip(),
+    })
+    response.set_cookie(
+        OTP_COOKIE_NAME,
+        value=token,
+        max_age=OTP_CODE_EXPIRY_SECONDS,
+        httponly=True,
+        secure=True,
+        samesite="Lax",
+        path="/",
+    )
+    return response
+
+
+def _read_otp_cookie() -> dict:
+    ser = _session_serializer()
+    if not ser:
+        return {}
+    token = request.cookies.get(OTP_COOKIE_NAME)
+    if not token:
+        return {}
+    try:
+        payload = ser.loads(token, max_age=OTP_CODE_EXPIRY_SECONDS)
+        return payload if isinstance(payload, dict) else {}
+    except Exception:
+        return {}
 
 
 def _sync_log_record(entry: dict) -> None:
@@ -508,7 +543,8 @@ def send_code():
             _otp_store.pop(email, None)
         app.logger.error("auth.send_code failed email=%s error=%s", _mask_email_for_logs(email), str(e))
         return jsonify({"error": str(e) or "Failed to send email; try again later"}), 500
-    return jsonify({"ok": True, "message": "Check your email for the code"})
+    resp = jsonify({"ok": True, "message": "Check your email for the code"})
+    return _set_otp_cookie(resp, email=email, code=code)
 
 
 @app.route("/api/auth/verify-code", methods=["POST"])
@@ -520,22 +556,35 @@ def verify_code():
     code = (data.get("code") or "").strip()
     if not email or not code:
         return jsonify({"error": "Email and code required"}), 400
-    now = time.time()
-    with _otp_lock:
-        entry = _otp_store.get(email)
-        if not entry:
-            app.logger.warning("auth.verify_code missing email=%s", _mask_email_for_logs(email))
-            return jsonify({"error": "Invalid or expired code"}), 401
-        if now > entry["expires_at"]:
-            del _otp_store[email]
-            app.logger.warning("auth.verify_code expired email=%s", _mask_email_for_logs(email))
-            return jsonify({"error": "Code has expired; request a new one"}), 401
-        if entry["code"] != code:
+    otp_payload = _read_otp_cookie()
+    if otp_payload:
+        cookie_email = (otp_payload.get("email") or "").strip().lower()
+        cookie_code = (otp_payload.get("code") or "").strip()
+        if cookie_email != email:
+            app.logger.warning("auth.verify_code email_mismatch email=%s", _mask_email_for_logs(email))
+            return jsonify({"error": "Invalid code"}), 401
+        if cookie_code != code:
             app.logger.warning("auth.verify_code invalid email=%s", _mask_email_for_logs(email))
             return jsonify({"error": "Invalid code"}), 401
-        del _otp_store[email]
+    else:
+        # Fallback for older instances or requests without OTP cookie.
+        now = time.time()
+        with _otp_lock:
+            entry = _otp_store.get(email)
+            if not entry:
+                app.logger.warning("auth.verify_code missing email=%s", _mask_email_for_logs(email))
+                return jsonify({"error": "Invalid or expired code"}), 401
+            if now > entry["expires_at"]:
+                del _otp_store[email]
+                app.logger.warning("auth.verify_code expired email=%s", _mask_email_for_logs(email))
+                return jsonify({"error": "Code has expired; request a new one"}), 401
+            if entry["code"] != code:
+                app.logger.warning("auth.verify_code invalid email=%s", _mask_email_for_logs(email))
+                return jsonify({"error": "Invalid code"}), 401
+            del _otp_store[email]
     app.logger.info("auth.verify_code success email=%s", _mask_email_for_logs(email))
     resp = jsonify({"ok": True})
+    resp.delete_cookie(OTP_COOKIE_NAME, path="/")
     return _set_session_cookie(resp, email=email)
 
 

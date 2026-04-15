@@ -4049,9 +4049,11 @@ def hubspot_sync_attendee():
     attendee_result = _hubspot_search_attendee_by_cvent_id(cvent_attendee_id)
 
     if training:
-        # Re-resolve associations using the last real (non-phantom) transaction's amount so that
-        # the "All (current)" view correctly shows Paying Delegate (not Dealmakers Guest) for
-        # attendees who paid for an upgrade in their final transaction (e.g. Alyssa Hart, Ryan Zwick).
+        # Build an "order_all_current" that mirrors the last real (non-phantom) transaction's
+        # per-step order object so that the "All (current)" deal plan uses the correct amounts
+        # and triggers the right scenario (e.g. paying_delegate_upgrade) rather than falling
+        # back to the raw aggregate order which mixes gross totals, workshop revenue, and VAT
+        # in a way that produces wrong deal amounts.
         _last_real_idx = None
         for _i in range(num_steps - 1, -1, -1):
             _uj_ph = bool(_i < len(user_journey) and user_journey[_i].get("phantom"))
@@ -4059,13 +4061,70 @@ def hubspot_sync_attendee():
             if not (_uj_ph or _ord_ph):
                 _last_real_idx = _i
                 break
-        _all_current_amt = None
+
+        order_all_current = order  # fallback: use raw aggregate for single-transaction attendees
+        _all_current_attendee_exists = bool(attendee_result)
+
         if _last_real_idx is not None:
+            # Per-step amounts for the last real transaction.
             _adm = float(orders_admission_amounts[_last_real_idx]) if _last_real_idx < len(orders_admission_amounts) else 0.0
             _qty = float(orders_quantity_net_amounts[_last_real_idx]) if _last_real_idx < len(orders_quantity_net_amounts) else 0.0
-            _s = _adm + _qty
-            _all_current_amt = _s if _s > 0 else None
-        if _all_current_amt is not None:
+            _tax = float(orders_tax_amounts[_last_real_idx]) if _last_real_idx < len(orders_tax_amounts) else 0.0
+            _denom = _adm + _qty
+            _tax_adm_current = (_tax * (_adm / _denom)) if _denom > 0 else 0.0
+
+            # Quantity items for the last real transaction.
+            _qty_lines = orders_quantity_items[_last_real_idx] if _last_real_idx < len(orders_quantity_items) else []
+            _qty_items_current = {}
+            for _line in (_qty_lines or []):
+                _qi_id = str(_line.get("id") or "").strip()
+                if not _qi_id:
+                    continue
+                _qi_net = float(_line.get("amount") or 0.0)
+                _qi_name = (_line.get("name") or "").strip()
+                _qi_tax = (_tax * (_qi_net / _denom)) if _denom > 0 else 0.0
+                _qty_items_current[_qi_id] = {"id": _qi_id, "name": _qi_name, "amount": round(_qi_net, 2), "tax": round(_qi_tax, 2)}
+
+            # Cumulative admission totals across all real steps up to and including the last real one.
+            _eff_indices = []
+            for _i0 in range(_last_real_idx + 1):
+                if not (
+                    (_i0 < len(user_journey) and user_journey[_i0].get("phantom"))
+                    or (_i0 < len(orders_structured) and orders_structured[_i0].get("phantom"))
+                ):
+                    _eff_indices.append(_i0)
+            _orders_amounts_all = [float(orders_admission_amounts[_i]) for _i in _eff_indices if _i < len(orders_admission_amounts)]
+            _total_all = sum(_orders_amounts_all)
+            _tax_adm_total = 0.0
+            for _i0 in _eff_indices:
+                _a_i = float(orders_admission_amounts[_i0]) if _i0 < len(orders_admission_amounts) else 0.0
+                _q_i = float(orders_quantity_net_amounts[_i0]) if _i0 < len(orders_quantity_net_amounts) else 0.0
+                _t_i = float(orders_tax_amounts[_i0]) if _i0 < len(orders_tax_amounts) else 0.0
+                _d_i = _a_i + _q_i
+                if _d_i > 0:
+                    _tax_adm_total += _t_i * (_a_i / _d_i)
+
+            order_all_current = {
+                "total_amount_ordered": _total_all,
+                "orders_amounts": _orders_amounts_all,
+                "orders_count": len(_orders_amounts_all) or (_last_real_idx + 1),
+                "amount_ordered": _adm,
+                "quantity_amount_ordered": _qty,
+                "tax_admission_current": round(_tax_adm_current, 2),
+                "tax_admission_total": round(_tax_adm_total, 2),
+                "quantity_items_current": _qty_items_current,
+                "cancelled": order.get("cancelled"),
+                "invoice_number": order.get("invoice_number"),
+                "reference_number": order.get("reference_number"),
+                "amount_due": order.get("amount_due"),
+            }
+            # The attendee effectively exists in HubSpot after transaction 1 has been processed.
+            _all_current_attendee_exists = bool(attendee_result) or (_last_real_idx > 0)
+
+        # Re-resolve event associations using the last real transaction's paid amount so labels
+        # are correct (e.g. Paying Delegate not Dealmakers Guest for paid upgrades).
+        _all_current_amt = (order_all_current.get("amount_ordered") or 0) + (order_all_current.get("quantity_amount_ordered") or 0)
+        if _all_current_amt and _all_current_amt > 0:
             _ac_assoc = _resolve_association_label_and_events(
                 attendee, order, admission_item_id, training=True, current_transaction_amount=_all_current_amt
             )
@@ -4075,8 +4134,8 @@ def hubspot_sync_attendee():
             base_label = _ac_assoc.get("base_label", base_label)
 
         deal_result = _build_deal_plan(
-            attendee, order, event_associations,
-            attendee_exists=bool(attendee_result),
+            attendee, order_all_current, event_associations,
+            attendee_exists=_all_current_attendee_exists,
             sponsor_associations=sponsor_associations,
             training=True,
             quantity_item_product_mappings=quantity_item_product_mappings,

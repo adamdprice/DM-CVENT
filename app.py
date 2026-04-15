@@ -39,6 +39,7 @@ HUBSPOT_ATTENDEE_OBJECT = "2-44005420"
 HUBSPOT_EVENTS_OBJECT = "2-43992149"
 HUBSPOT_FESTIVALS_OBJECT = "2-52852059"
 HUBSPOT_SPONSORS_OBJECT = "2-45742771"
+HUBSPOT_FESTIVAL_SPONSORS_OBJECT = "2-60612925"
 HUBSPOT_REG_QUESTIONS_GROUP = "registration_questions"  # Internal name; display: Registration Questions
 HUBSPOT_EVENT_ADMISSION_PROP = "cvent_admission_item_ids"
 HUBSPOT_EVENT_CODE_PROP = "event_code"
@@ -2872,13 +2873,14 @@ def _hubspot_events_for_festival(festival_id: str) -> list:
         return []
 
 
-def _hubspot_search_sponsor_by_discount_code(discount_code: str, prop: str = "exec_discount_code") -> dict:
+def _hubspot_search_sponsor_by_discount_code(discount_code: str, prop: str = "exec_discount_code") -> list:
     """
     Search sponsors where prop (exec_discount_code or client_discount_code) contains the full discount code.
-    Field may be comma or space separated. Returns first match or empty dict.
+    Field may be comma or space separated. Returns all matching Sponsor records (Scenario D: joint
+    multi-event sponsors may have the same festival-code discount code on two separate Sponsor records).
     """
     if not HUBSPOT_TOKEN or not discount_code:
-        return {}
+        return []
     try:
         r = requests.post(
             f"https://api.hubapi.com/crm/v3/objects/{HUBSPOT_SPONSORS_OBJECT}/search",
@@ -2894,18 +2896,50 @@ def _hubspot_search_sponsor_by_discount_code(discount_code: str, prop: str = "ex
                         "value": discount_code,
                     }]
                 }],
-                "limit": 1,
+                "limit": 100,
                 "properties": ["name", prop],
             },
             timeout=15,
         )
         if not r.ok:
-            return {}
-        data = r.json()
-        results = data.get("results", [])
-        return results[0] if results else {}
+            return []
+        return r.json().get("results", [])
     except Exception:
-        return {}
+        return []
+
+
+def _hubspot_search_festival_sponsor_by_discount_code(discount_code: str, prop: str = "exec_discount_code") -> list:
+    """
+    Search Festival Sponsor records where prop contains the full discount code.
+    Returns all matching Festival Sponsor records.
+    """
+    if not HUBSPOT_TOKEN or not discount_code:
+        return []
+    try:
+        r = requests.post(
+            f"https://api.hubapi.com/crm/v3/objects/{HUBSPOT_FESTIVAL_SPONSORS_OBJECT}/search",
+            headers={
+                "Authorization": f"Bearer {HUBSPOT_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={
+                "filterGroups": [{
+                    "filters": [{
+                        "propertyName": prop,
+                        "operator": "CONTAINS_TOKEN",
+                        "value": discount_code,
+                    }]
+                }],
+                "limit": 100,
+                "properties": ["name", prop],
+            },
+            timeout=15,
+        )
+        if not r.ok:
+            return []
+        return r.json().get("results", [])
+    except Exception:
+        return []
 
 
 def _hubspot_events_for_sponsor(sponsor_id: str) -> list:
@@ -2957,6 +2991,7 @@ def _resolve_association_label_and_events(
         "event_associations": [{"event_id", "full_name", "label_id", "label_name"}],
         "festival_associations": [{"id", "festival_code"}],
         "sponsor_associations": [{"id", "name"}],
+        "fs_associations": [{"id", "name"}],
         "base_label": {"id", "name"},
         "warnings": [str],
     }
@@ -2987,6 +3022,7 @@ def _resolve_association_label_and_events(
     event_by_id = {}
     festival_assocs = []
     sponsor_assocs = []
+    fs_assocs = []
 
     # 1. Events from admission item (use base label)
     for e in _hubspot_events_for_admission_item(admission_item_id):
@@ -3048,35 +3084,53 @@ def _resolve_association_label_and_events(
                 if eid:
                     sponsor_event_ids_from_code.add(str(eid))
 
-        # Search sponsor by discount code (in training assume always found)
-        sponsor = _hubspot_search_sponsor_by_discount_code(code, prop=sponsor_prop)
-        if sponsor:
-            sid = sponsor.get("id")
-            if sid and not any(s.get("id") == sid for s in sponsor_assocs):
-                sponsor_assocs.append({
-                    "id": sid,
-                    "name": (sponsor.get("properties") or {}).get("name", ""),
-                })
+        # Search Sponsor records (all matches — Scenario D may have one per event)
+        sponsors = _hubspot_search_sponsor_by_discount_code(code, prop=sponsor_prop)
+        if sponsors:
+            for sp in sponsors:
+                sid = sp.get("id")
+                if sid and not any(s.get("id") == sid for s in sponsor_assocs):
+                    sponsor_assocs.append({
+                        "id": sid,
+                        "name": (sp.get("properties") or {}).get("name", ""),
+                    })
         elif training:
-            # Training: assume sponsor always found; use placeholder (associated to one event only, picked in deal plan)
+            # Training: assume sponsor always found; use placeholder
             fake_id = f"training-sponsor-{code[:20]}" if code else "training-sponsor-1"
             if not any(s.get("id") == fake_id for s in sponsor_assocs):
                 sponsor_assocs.append({"id": fake_id, "name": f"Sponsor (simulated for {code or 'code'})"})
 
+        # Search Festival Sponsor records (all matches)
+        fs_records = _hubspot_search_festival_sponsor_by_discount_code(code, prop=sponsor_prop)
+        if fs_records:
+            for fs in fs_records:
+                fsid = fs.get("id")
+                if fsid and not any(f.get("id") == fsid for f in fs_assocs):
+                    fs_assocs.append({
+                        "id": fsid,
+                        "name": (fs.get("properties") or {}).get("name", ""),
+                    })
+        elif training:
+            fake_fs_id = f"training-fs-{code[:20]}" if code else "training-fs-1"
+            if not any(f.get("id") == fake_fs_id for f in fs_assocs):
+                fs_assocs.append({"id": fake_fs_id, "name": f"Festival Sponsor (simulated for {code or 'code'})"})
+
     # 2b. Apply Sponsor-vs-Guest event labels using ONLY:
     #     - admission item events (already in event_by_id)
     #     - discount code type (festival vs event code)
-    # Guest fallback requested by business rule.
+    # Scenario B rule: All Access + event code → Sponsor label on ALL admitted events (not just the
+    # matching one). A single-event ticket + event code keeps the original behaviour (Sponsor on
+    # matching event only, Dealmakers Guest on others).
     if sponsor_main_label_id is not None and event_by_id:
         guest_label = (ASSOC_LABEL_DEALMAKERS_GUEST, "Dealmakers Guest")
-        if sponsor_by_festival_code:
-            # Festival code => sponsor on all admitted events.
+        all_access = len(event_by_id) >= 2  # All Access gives access to 2+ events
+        if sponsor_by_festival_code or all_access:
+            # Festival code OR All Access + event code → sponsor label on all admitted events.
             for ev in event_by_id.values():
                 ev["label_id"] = sponsor_main_label_id
                 ev["label_name"] = sponsor_main_label_name
         else:
-            # Event code => sponsor only on matching admitted event; other admitted events = guest.
-            # If no admitted event matches code, all admitted events become guest.
+            # Single-event ticket + event code → sponsor only on matching event; others = guest.
             matched_any = False
             for eid_str, ev in list(event_by_id.items()):
                 eid_val = str(ev.get("event_id", eid_str))
@@ -3155,6 +3209,7 @@ def _resolve_association_label_and_events(
         "event_associations": event_associations,
         "festival_associations": festival_assocs,
         "sponsor_associations": sponsor_assocs,
+        "fs_associations": fs_assocs,
         "base_label": {"id": base_label[0], "name": base_label[1]},
         "warnings": warnings,
     }
@@ -3723,7 +3778,8 @@ def _execute_sync_step(
     event_associations: list,
     festival_associations: list,
     sponsor_associations: list,
-    deal_plan: list,
+    fs_associations: list = None,
+    deal_plan: list = None,
     existing_contact_id: str = None,
     existing_attendee_id: str = None,
 ) -> dict:
@@ -3825,6 +3881,11 @@ def _execute_sync_step(
             HUBSPOT_ATTENDEE_OBJECT, result["attendee_id"], HUBSPOT_SPONSORS_OBJECT
         )
     }
+    existing_fs_ids = {
+        a["to_id"] for a in _hubspot_get_object_associations(
+            HUBSPOT_ATTENDEE_OBJECT, result["attendee_id"], HUBSPOT_FESTIVAL_SPONSORS_OBJECT
+        )
+    }
 
     # 3. Attendee → Events (with label); skip if already associated with same label
     for ea in event_associations:
@@ -3876,6 +3937,21 @@ def _execute_sync_step(
             association_type_id=None,
         ):
             result["actions"].append(f"Associated attendee to sponsor {s.get('name', sid)}")
+
+    # 5b. Attendee → Festival Sponsors; skip if already associated
+    for fs in (fs_associations or []):
+        fsid = str(fs.get("id", ""))
+        if not fsid or str(fsid).startswith("training-fs-"):
+            continue
+        if fsid in existing_fs_ids:
+            result["actions"].append(f"Already associated to festival sponsor {fs.get('name', fsid)} – skipped")
+            continue
+        if _hubspot_put_association(
+            HUBSPOT_ATTENDEE_OBJECT, result["attendee_id"],
+            HUBSPOT_FESTIVAL_SPONSORS_OBJECT, fsid,
+            association_type_id=None,
+        ):
+            result["actions"].append(f"Associated attendee to festival sponsor {fs.get('name', fsid)}")
 
     # 6. Deals
     if (not result["contact_id"] and not result["attendee_id"]) or not deal_plan:
@@ -4034,6 +4110,7 @@ def hubspot_sync_attendee():
     event_associations = assoc_result.get("event_associations", [])
     festival_associations = assoc_result.get("festival_associations", [])
     sponsor_associations = assoc_result.get("sponsor_associations", [])
+    fs_associations = assoc_result.get("fs_associations", [])
     base_label = assoc_result.get("base_label", {})
 
     orders_gross_amounts = order.get("orders_amounts") or []
@@ -4131,6 +4208,7 @@ def hubspot_sync_attendee():
             event_associations = _ac_assoc.get("event_associations", [])
             festival_associations = _ac_assoc.get("festival_associations", [])
             sponsor_associations = _ac_assoc.get("sponsor_associations", [])
+            fs_associations = _ac_assoc.get("fs_associations", [])
             base_label = _ac_assoc.get("base_label", base_label)
 
         deal_result = _build_deal_plan(
@@ -4164,6 +4242,7 @@ def hubspot_sync_attendee():
             "event_associations": event_associations,
             "festival_associations": festival_associations,
             "sponsor_associations": sponsor_associations,
+            "fs_associations": fs_associations,
             "base_label": base_label,
             "deal_conditions_met": deal_result.get("deal_conditions_met", False),
             "deal_conditions": deal_result.get("deal_conditions", {}),
@@ -4221,6 +4300,9 @@ def hubspot_sync_attendee():
             if sponsor_associations:
                 snames = [s.get("name") or f"Sponsor {s.get('id')}" for s in sponsor_associations]
                 report["actions"].append(f"Would associate attendee to sponsor(s): {', '.join(snames)}")
+            if fs_associations:
+                fsnames = [f.get("name") or f"Festival Sponsor {f.get('id')}" for f in fs_associations]
+                report["actions"].append(f"Would associate attendee to festival sponsor(s): {', '.join(fsnames)}")
         elif admission_item_id:
             report["actions"].append("No HubSpot event paired with this admission item in settings – would not associate attendee to any event")
         else:
@@ -4350,6 +4432,7 @@ def hubspot_sync_attendee():
             event_associations_step = list(assoc_result_k.get("event_associations", []))
             festival_associations_step = list(assoc_result_k.get("festival_associations", []))
             sponsor_associations_step = list(assoc_result_k.get("sponsor_associations", []))
+            fs_associations_step = list(assoc_result_k.get("fs_associations", []))
             base_label_step = assoc_result_k.get("base_label", base_label)
             attendee_exists_k = k > 1
             deal_result_k = _build_deal_plan(
@@ -4399,6 +4482,7 @@ def hubspot_sync_attendee():
                 "event_associations": event_associations_step,
                 "festival_associations": festival_associations_step,
                 "sponsor_associations": sponsor_associations_step,
+                "fs_associations": fs_associations_step,
                 "base_label": base_label_step,
                 "deal_conditions_met": deal_result_k.get("deal_conditions_met", False),
                 "deal_conditions": deal_result_k.get("deal_conditions", {}),
@@ -4447,6 +4531,9 @@ def hubspot_sync_attendee():
                 if sponsor_associations_step:
                     snames = [s.get("name") or f"Sponsor {s.get('id')}" for s in sponsor_associations_step]
                     step_report["actions"].append(f"Would associate attendee to sponsor(s): {', '.join(snames)}")
+                if fs_associations_step:
+                    fsnames = [f.get("name") or f"Festival Sponsor {f.get('id')}" for f in fs_associations_step]
+                    step_report["actions"].append(f"Would associate attendee to festival sponsor(s): {', '.join(fsnames)}")
             elif admission_item_id_k:
                 step_report["actions"].append("No HubSpot event paired with this admission item in settings – would not associate attendee to any event")
             else:
@@ -4643,6 +4730,7 @@ def hubspot_sync_attendee():
         event_associations_step = list(assoc_result_k.get("event_associations", []))
         festival_associations_step = list(assoc_result_k.get("festival_associations", []))
         sponsor_associations_step = list(assoc_result_k.get("sponsor_associations", []))
+        fs_associations_step = list(assoc_result_k.get("fs_associations", []))
         # Use only transaction-derived admission item for this step (never fall back to attendee current)
         attendee_properties_k = _build_attendee_properties(
             attendee, order_k, admission_item_override=admission_item_name_k
@@ -4677,6 +4765,7 @@ def hubspot_sync_attendee():
             event_associations=event_associations_step,
             festival_associations=festival_associations_step,
             sponsor_associations=sponsor_associations_step,
+            fs_associations=fs_associations_step,
             deal_plan=deal_plan_k,
             existing_contact_id=contact_id,
             existing_attendee_id=attendee_id,

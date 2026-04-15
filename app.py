@@ -4172,24 +4172,42 @@ def hubspot_sync_attendee():
             "tax_breakdown": deal_result.get("tax_breakdown"),
             "speaker_upgrade_event_labels": deal_result.get("speaker_upgrade_event_labels"),
             "speaker_event_answer": deal_result.get("speaker_event_answer", ""),
-            "contact": {"found": bool(contact_result), "id": contact_result.get("id") if contact_result else None, "email": (contact_result.get("properties") or {}).get("email", "") if contact_result else ""} if contact_result else {"found": False, "id": None, "properties": {"firstname": first_name, "lastname": last_name, "email": email}},
-            "attendee": {"found": bool(attendee_result), "id": attendee_result.get("id") if attendee_result else None} if attendee_result else {"found": False, "id": None},
+            "contact": (
+                {"found": True, "id": contact_result.get("id"), "email": (contact_result.get("properties") or {}).get("email", "")}
+                if contact_result else
+                {"found": _all_current_attendee_exists, "id": "simulated-after-step-1" if _all_current_attendee_exists else None, "email": email}
+            ),
+            "attendee": (
+                {"found": True, "id": attendee_result.get("id")}
+                if attendee_result else
+                {"found": _all_current_attendee_exists, "id": "simulated-after-step-1" if _all_current_attendee_exists else None}
+            ),
             "actions": [],
             "attendee_properties": attendee_properties_full,
         }
-        if contact_result:
-            report["actions"].append("Contact found in HubSpot (no create needed)")
+        _contact_found = bool(contact_result) or _all_current_attendee_exists
+        _attendee_found = bool(attendee_result) or _all_current_attendee_exists
+        if _contact_found:
+            report["actions"].append(
+                "Contact found in HubSpot (no create needed)"
+                if contact_result else
+                "Contact found in HubSpot (no create needed) – simulated from transaction 1"
+            )
         else:
             report["actions"].append("Would create new HubSpot contact (firstname, lastname, email from Cvent)")
-        if attendee_result:
-            report["actions"].append("Attendee record found in HubSpot (no create needed)")
+        if _attendee_found:
+            report["actions"].append(
+                "Attendee record found in HubSpot (no create needed)"
+                if attendee_result else
+                "Attendee record found in HubSpot (no create needed) – simulated from transaction 1"
+            )
         else:
             report["actions"].append("Would create new HubSpot attendee record with cvent_attendee_id")
-            if not contact_result:
+            if not _contact_found:
                 report["actions"].append("Would create contact first, then create attendee and associate")
             else:
                 report["actions"].append("Would associate contact to attendee")
-        report["actions"].append("Would set attendee properties (see below)")
+        report["actions"].append("Would update attendee properties (see below)" if _attendee_found else "Would set attendee properties (see below)")
         if event_associations:
             by_label = {}
             for ea in event_associations:

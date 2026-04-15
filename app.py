@@ -4478,6 +4478,57 @@ def hubspot_sync_attendee():
                 step_report["actions"].append("Would not create deal (no events to associate to)")
             step_date = user_journey[k - 1].get("created", "") if k <= len(user_journey) else ""
             transaction_steps.append({"step": k, "date": step_date, "report": step_report})
+
+        # ── Aggregate all-deals for the "All (current)" report ──────────────────
+        # Walk every non-phantom step's deal_plan and merge them into a single
+        # final-state list: upsert items overwrite earlier create items for the
+        # same event (admission deals only); quantity (workshop) deals survive
+        # regardless and are never replaced by an upsert.
+        _agg_creates = []      # create-action deals accumulated across all steps
+        _agg_upserts = {}      # event_name -> latest upsert item (admission)
+        for _ts in transaction_steps:
+            _ts_report = _ts.get("report") or {}
+            if _ts_report.get("phantom_ignored"):
+                continue
+            for _item in (_ts_report.get("deal_plan") or []):
+                _act = _item.get("action", "create")
+                if _act in ("upsert", "update_existing") and _item.get("component") != "quantity":
+                    _agg_upserts[_item.get("event_name", "")] = _item
+                else:
+                    _agg_creates.append(_item)
+
+        # Remove non-quantity creates for events that were later upserted.
+        _upserted_ev_names = set(_agg_upserts.keys())
+        _final_deal_plan = [
+            d for d in _agg_creates
+            if not (d.get("event_name") in _upserted_ev_names and d.get("component") != "quantity")
+        ]
+        _final_deal_plan.extend(_agg_upserts.values())
+        if _final_deal_plan:
+            report["deal_plan"] = _final_deal_plan
+            report["deal_conditions_met"] = True
+            # Update the planned-actions deal line to reflect the full aggregate.
+            _qty_deals = [d for d in _final_deal_plan if d.get("component") == "quantity"]
+            _adm_deals = [d for d in _final_deal_plan if d.get("component") != "quantity"]
+            _deal_summary_parts = []
+            if _agg_upserts:
+                _deal_summary_parts.append(
+                    f"Would amend or create {len(_adm_deals)} admission deal(s) (amending where a deal already exists)"
+                )
+            elif _adm_deals:
+                _deal_summary_parts.append(f"Would create {len(_adm_deals)} admission deal(s)")
+            if _qty_deals:
+                _deal_summary_parts.append(f"Would create {len(_qty_deals)} quantity item deal(s) (e.g. workshops)")
+            _agg_deal_action = f"Combined deal outcome across all transactions: {len(_final_deal_plan)} deal(s) total — " + "; ".join(_deal_summary_parts)
+            # Replace the old single-step deal action line
+            _deal_action_kwds = ("Would create", "Would amend", "Would not create deal")
+            report["actions"] = [
+                a for a in report.get("actions", [])
+                if not any(a.startswith(kw) for kw in _deal_action_kwds)
+            ]
+            report["actions"].append(_agg_deal_action)
+        # ────────────────────────────────────────────────────────────────────────
+
         report["transaction_steps"] = transaction_steps
         _log_sync(
             "training",

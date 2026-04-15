@@ -791,7 +791,10 @@ def _build_deal_plan(
                     "amount": half,
                     "dealname": dealname,
                     "properties": props,
-                    "action": "update_existing" if i == 0 else "create",
+                    # "upsert": amend the existing deal for this event if one is found on the contact,
+                    # otherwise create. This avoids hard-coding which event is "existing" by position,
+                    # since HubSpot may return events in any order.
+                    "action": "upsert",
                 })
 
         # Speaker upgrade: speaker type, already associated to one event, combi + additional transaction (paid or free)
@@ -1127,9 +1130,8 @@ def _build_deal_plan(
                 product_id = str((prod or {}).get("id") or "").strip() if prod else ""
                 product_name = (prod or {}).get("name") or "" if prod else ""
                 product_sku = (prod or {}).get("sku") or "" if prod else ""
-                if not product_id:
-                    # Quantity item must be mapped in the UI to create an associated product deal.
-                    continue
+                # Create the deal even when no product is mapped; product association is skipped
+                # but the deal (and its revenue) is still captured.
 
                 ratios = [ea.get("ratio") for ea in event_allocs] if event_allocs else []
                 net_allocs = _allocate_by_ratio(qi_net, ratios) if ratios else [qi_net]
@@ -3889,7 +3891,7 @@ def _execute_sync_step(
         amount = item.get("amount")
         tax_amount = item.get("tax_amount")
         product_id = str((item.get("product_id") or "")).strip()
-        if action == "update_existing":
+        if action in ("update_existing", "upsert"):
             existing = next(
                 (d for d in contact_deals if event_name and (event_name in (d.get("dealname") or ""))),
                 None,
@@ -4047,6 +4049,31 @@ def hubspot_sync_attendee():
     attendee_result = _hubspot_search_attendee_by_cvent_id(cvent_attendee_id)
 
     if training:
+        # Re-resolve associations using the last real (non-phantom) transaction's amount so that
+        # the "All (current)" view correctly shows Paying Delegate (not Dealmakers Guest) for
+        # attendees who paid for an upgrade in their final transaction (e.g. Alyssa Hart, Ryan Zwick).
+        _last_real_idx = None
+        for _i in range(num_steps - 1, -1, -1):
+            _uj_ph = bool(_i < len(user_journey) and user_journey[_i].get("phantom"))
+            _ord_ph = bool(_i < len(orders_structured) and orders_structured[_i].get("phantom"))
+            if not (_uj_ph or _ord_ph):
+                _last_real_idx = _i
+                break
+        _all_current_amt = None
+        if _last_real_idx is not None:
+            _adm = float(orders_admission_amounts[_last_real_idx]) if _last_real_idx < len(orders_admission_amounts) else 0.0
+            _qty = float(orders_quantity_net_amounts[_last_real_idx]) if _last_real_idx < len(orders_quantity_net_amounts) else 0.0
+            _s = _adm + _qty
+            _all_current_amt = _s if _s > 0 else None
+        if _all_current_amt is not None:
+            _ac_assoc = _resolve_association_label_and_events(
+                attendee, order, admission_item_id, training=True, current_transaction_amount=_all_current_amt
+            )
+            event_associations = _ac_assoc.get("event_associations", [])
+            festival_associations = _ac_assoc.get("festival_associations", [])
+            sponsor_associations = _ac_assoc.get("sponsor_associations", [])
+            base_label = _ac_assoc.get("base_label", base_label)
+
         deal_result = _build_deal_plan(
             attendee, order, event_associations,
             attendee_exists=bool(attendee_result),
@@ -4126,7 +4153,7 @@ def hubspot_sync_attendee():
             scenario = dr.get("deal_scenario", "standard")
             plan = dr["deal_plan"]
             if scenario == "paying_delegate_upgrade":
-                report["actions"].append("Would amend existing deal amount to half of total and create one new deal for the other event (total from both transactions split 50/50)")
+                report["actions"].append("Would amend existing deal for each event if one already exists, or create if not; total split 50/50 across both events")
             elif scenario == "speaker_upgrade":
                 report["actions"].append("Would create 1 deal for the event they paid to attend and associate with correct speaker/paying delegate labels per question")
             elif scenario == "sponsor_upgrade":
@@ -4271,7 +4298,7 @@ def hubspot_sync_attendee():
             deal_plan_step = [dict(item) for item in deal_result_k.get("deal_plan", [])]
             if k > 1:
                 for item in deal_plan_step:
-                    if item.get("action") == "update_existing":
+                    if item.get("action") in ("update_existing", "upsert"):
                         item["simulated_from_step_1"] = True
             # Use only transaction-derived admission item for this step (never fall back to attendee current)
             attendee_properties_k = _build_attendee_properties(
@@ -4352,7 +4379,7 @@ def hubspot_sync_attendee():
                 scenario = drk.get("deal_scenario", "standard")
                 plan = step_report["deal_plan"]
                 if scenario == "paying_delegate_upgrade":
-                    step_report["actions"].append("Would amend existing deal amount to half of total and create one new deal for the other event (total from both transactions split 50/50)")
+                    step_report["actions"].append("Would amend existing deal for each event if one already exists, or create if not; total split 50/50 across both events")
                 elif scenario == "speaker_upgrade":
                     step_report["actions"].append("Would create 1 deal for the event they paid to attend and associate with correct speaker/paying delegate labels per question")
                 elif scenario == "sponsor_upgrade":
@@ -4364,10 +4391,10 @@ def hubspot_sync_attendee():
                     else:
                         step_report["actions"].append(f"Would create {n} deals (one per event), revenue split {100 // n}% each")
                 for item in plan:
-                    if item.get("action") == "update_existing" and item.get("simulated_from_step_1"):
+                    if item.get("action") in ("update_existing", "upsert") and item.get("simulated_from_step_1"):
                         en = item.get("event_name") or "event"
                         amt = item.get("amount")
-                        step_report["actions"].append(f"Would amend existing deal (simulated from step 1) for {en} to £{amt}")
+                        step_report["actions"].append(f"Would amend or create deal for {en} (£{amt}) — amends if existing deal found, creates if not")
             elif not drk.get("deal_conditions_met"):
                 step_report["actions"].append("Would not create deal (conditions not met: need Accepted, amount > 0, reference_id without DelSale)")
             elif not event_associations_step:

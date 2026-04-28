@@ -781,6 +781,7 @@ def _build_deal_plan(
                     "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
                     "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
                     "cvent_reference_id": reference_id,
+                    "cvent_testing": "yes",
                     "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
                 }
                 if half is not None:
@@ -883,6 +884,7 @@ def _build_deal_plan(
                 "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
                 "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
                 "cvent_reference_id": reference_id,
+                "cvent_testing": "yes",
                 "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
             }
             if amt is not None:
@@ -992,6 +994,7 @@ def _build_deal_plan(
                     "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
                     "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
                     "cvent_reference_id": reference_id,
+                    "cvent_testing": "yes",
                     "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
                 }
                 if amt is not None:
@@ -1024,6 +1027,7 @@ def _build_deal_plan(
                     "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
                     "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
                     "cvent_reference_id": reference_id,
+                    "cvent_testing": "yes",
                     "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
                 }
                 if amount_each is not None:
@@ -1090,28 +1094,7 @@ def _build_deal_plan(
         # Quantity deals (separate deals per Cvent quantity item).
         quantity_items_map = quantity_items_current if isinstance(quantity_items_current, dict) else {}
         if quantity_items_map:
-            # Build event allocations based on admission deal amounts (fallback uniform).
-            admission_deals_net_for_ratio = sum((float(d.get("amount") or 0.0) for d in admission_deals), 0.0) if admission_deals else 0.0
-            event_allocs = []
-            if admission_deals and admission_deals_net_for_ratio > 0:
-                for d in admission_deals:
-                    amt = float(d.get("amount") or 0.0)
-                    ratio = (amt / admission_deals_net_for_ratio) if admission_deals_net_for_ratio else 0.0
-                    event_allocs.append({
-                        "event_id": d.get("event_id"),
-                        "event_name": d.get("event_name"),
-                        "ratio": ratio,
-                    })
-            elif event_associations:
-                n = len(event_associations)
-                event_allocs = [
-                    {
-                        "event_id": ea.get("event_id"),
-                        "event_name": (ea.get("full_name") or "").strip() or f"Event {ea.get('event_id')}",
-                        "ratio": 1.0 / n if n else 0.0,
-                    }
-                    for ea in event_associations
-                ]
+            QUANTITY_ITEM_EVENT_ID = "39987199506"
 
             quantity_deals = []
             for qi_id, qi in quantity_items_map.items():
@@ -1134,48 +1117,39 @@ def _build_deal_plan(
                 # Create the deal even when no product is mapped; product association is skipped
                 # but the deal (and its revenue) is still captured.
 
-                ratios = [ea.get("ratio") for ea in event_allocs] if event_allocs else []
-                net_allocs = _allocate_by_ratio(qi_net, ratios) if ratios else [qi_net]
-                tax_allocs = _allocate_by_ratio(qi_tax, ratios) if ratios else [qi_tax]
+                dealname = f"{full_name} - {qi_name} (QI:{qi_id})"
+                props = {
+                    "dealname": dealname,
+                    "pipeline": HUBSPOT_DEAL_PIPELINE,
+                    "dealstage": HUBSPOT_DEAL_STAGE,
+                    "company_name": (attendee.get("company_name") or "").strip(),
+                    "country": (attendee.get("attendee_country") or "").strip(),
+                    "cvent_admission_item": (attendee.get("admission_item") or "").strip(),
+                    "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
+                    "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
+                    "cvent_reference_id": reference_id,
+                    "cvent_quantity_item_id": str(qi_id),
+                    "cvent_testing": "yes",
+                    "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
+                    "cvent_tax_amount": qi_tax,
+                }
+                if qi_net > 0:
+                    props["amount"] = round(qi_net, 2)
+                props = {k: v for k, v in props.items() if v not in ("", None)}
 
-                for j, ea in enumerate(event_allocs):
-                    ev_amount = net_allocs[j] if j < len(net_allocs) else 0.0
-                    ev_tax = tax_allocs[j] if j < len(tax_allocs) else 0.0
-                    if ev_amount <= 0 and ev_tax <= 0:
-                        continue
-                    event_id = ea.get("event_id")
-                    event_name = ea.get("event_name") or f"Event {event_id}"
-                    dealname = f"{full_name} - {event_name} - {qi_name} (QI:{qi_id})"
-                    props = {
-                        "dealname": dealname,
-                        "pipeline": HUBSPOT_DEAL_PIPELINE,
-                        "dealstage": HUBSPOT_DEAL_STAGE,
-                        "company_name": (attendee.get("company_name") or "").strip(),
-                        "country": (attendee.get("attendee_country") or "").strip(),
-                        "cvent_admission_item": (attendee.get("admission_item") or "").strip(),
-                        "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
-                        "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
-                        "cvent_reference_id": reference_id,
-                        "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
-                        "cvent_tax_amount": ev_tax,
-                    }
-                    if ev_amount > 0:
-                        props["amount"] = round(ev_amount, 2)
-                    props = {k: v for k, v in props.items() if v not in ("", None)}
-
-                    quantity_deals.append({
-                        "event_id": event_id,
-                        "event_name": event_name,
-                        "amount": round(ev_amount, 2) if ev_amount > 0 else None,
-                        "tax_amount": ev_tax,
-                        "dealname": dealname,
-                        "properties": props,
-                        "action": "create",
-                        "component": "quantity",
-                        "product_id": product_id,
-                        "product_name": product_name,
-                        "product_sku": product_sku,
-                    })
+                quantity_deals.append({
+                    "event_id": QUANTITY_ITEM_EVENT_ID,
+                    "event_name": f"Event {QUANTITY_ITEM_EVENT_ID}",
+                    "amount": round(qi_net, 2) if qi_net > 0 else None,
+                    "tax_amount": qi_tax,
+                    "dealname": dealname,
+                    "properties": props,
+                    "action": "create",
+                    "component": "quantity",
+                    "product_id": product_id,
+                    "product_name": product_name,
+                    "product_sku": product_sku,
+                })
 
             # Append quantity deals after admission deals.
             deal_plan.extend(quantity_deals)

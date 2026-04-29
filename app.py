@@ -4574,6 +4574,7 @@ def hubspot_sync_attendee():
             attendee_properties_k = _build_attendee_properties(
                 attendee, order_k, admission_item_override=admission_item_name_k, question_mappings=event_question_mappings
             )
+            step_report = {
                 "message": report["message"],
                 "transaction_step_number": k,
                 "transaction_step_intro": step_intro,

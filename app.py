@@ -3953,7 +3953,8 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
         cvent_admission_item = (admission_item_override or "").strip()
     else:
         cvent_admission_item = (attendee.get("admission_item") or "").strip()
-    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
+    _now = datetime.now(timezone.utc)
+    now_ms = int(datetime(_now.year, _now.month, _now.day, tzinfo=timezone.utc).timestamp() * 1000)
     props = {
         "attendee_name": attendee_name,
         "company_name": (attendee.get("company_name") or "").strip(),

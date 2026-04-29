@@ -1090,8 +1090,9 @@
 
       Promise.all([
         fetchJson(`/api/events/${encodeURIComponent(eventId)}/attendees`),
-        loadHubspotEvents()
-      ]).then(([{ ok, data }, _]) => {
+        loadHubspotEvents(),
+        fetchJson(`/api/events/${encodeURIComponent(eventId)}/sync-statuses`),
+      ]).then(([{ ok, data }, _, { data: syncData }]) => {
           if (data.error) {
             attendeesContent.innerHTML = `<div class="error-msg">${escapeHtml(data.error)}</div>`;
             return;
@@ -1101,10 +1102,22 @@
             attendeesContent.innerHTML = '<p>No attendees found for this event.</p>';
             return;
           }
+          const syncStatuses = syncData || {};
+
+          function syncCell(aid) {
+            const s = syncStatuses[String(aid)];
+            if (!s) return '<td class="sync-status-cell" data-aid="' + escapeHtml(String(aid)) + '"><span style="color:#9ca3af;" title="Not yet synced">—</span></td>';
+            if (s.ok) {
+              const ts = s.timestamp ? new Date(s.timestamp).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
+              return `<td class="sync-status-cell" data-aid="${escapeHtml(String(aid))}"><span style="color:#22c55e;" title="Synced ${escapeHtml(s.timestamp)}">✓</span> <span style="font-size:0.75rem;color:var(--text-muted);">${escapeHtml(ts)}</span></td>`;
+            } else {
+              return `<td class="sync-status-cell" data-aid="${escapeHtml(String(aid))}"><span style="color:#ef4444;" title="Last sync: ${escapeHtml(s.status)}">✗</span></td>`;
+            }
+          }
 
           let html = '<div class="section-card"><h3>Attendees</h3>';
           html += `<p style="margin-bottom:1rem;">${attendees.length} attendee(s) found. Click an attendee to view details.</p>`;
-          html += '<div class="table-wrap"><table class="data-table table-attendees"><thead><tr><th>Attendee ID</th><th>Name</th><th>Email</th><th>Type</th><th>Status</th><th>Last updated</th><th>Admission Item</th><th>Orders</th></tr></thead><tbody>';
+          html += '<div class="table-wrap"><table class="data-table table-attendees"><thead><tr><th>Name</th><th>Email</th><th>Type</th><th>Status</th><th>Last updated</th><th>Synced with HubSpot</th></tr></thead><tbody>';
           attendees.forEach(a => {
             const aid = a.id || '—';
             const contact = a.contact || {};
@@ -1114,9 +1127,7 @@
             const status = a.status || '—';
             const lastMod = a.lastModified || a.attendeeLastModified || '';
             const lastModFmt = lastMod ? formatDateTime(lastMod) : '—';
-            const admission = a._admission_item || (a.admissionItem || {}).name || '—';
-            const ordersCount = a._orders_count !== undefined ? String(a._orders_count) : '—';
-            html += `<tr class="attendee-row" data-attendee-id="${escapeHtml(String(aid))}"><td class="mono cell-truncate" title="${escapeHtml(String(aid))}">${escapeHtml(String(aid))}</td><td>${escapeHtml(name)}</td><td class="cell-truncate" title="${escapeHtml(email)}">${escapeHtml(email)}</td><td>${escapeHtml(regType)}</td><td>${escapeHtml(String(status))}</td><td>${escapeHtml(lastModFmt)}</td><td class="cell-truncate" title="${escapeHtml(admission)}">${escapeHtml(admission)}</td><td>${escapeHtml(ordersCount)}</td></tr>`;
+            html += `<tr class="attendee-row" data-attendee-id="${escapeHtml(String(aid))}"><td>${escapeHtml(name)}</td><td class="cell-truncate" title="${escapeHtml(email)}">${escapeHtml(email)}</td><td>${escapeHtml(regType)}</td><td>${escapeHtml(String(status))}</td><td>${escapeHtml(lastModFmt)}</td>${syncCell(aid)}</tr>`;
           });
           html += '</tbody></table></div></div>';
           attendeesContent.innerHTML = html;
@@ -1187,12 +1198,15 @@
                 if (result.error && !result.actions) {
                   failed++;
                   errors.push(`${name}: ${result.error}`);
+                  updateAttendeeSyncCell(aid, false);
                 } else {
                   succeeded++;
+                  updateAttendeeSyncCell(aid, true);
                 }
               } catch (e) {
                 failed++;
                 errors.push(`${name}: ${e.message || 'Network error'}`);
+                updateAttendeeSyncCell(aid, false);
               }
               // Small pause between attendees to stay well within HubSpot rate limits
               if (i < total - 1 && !syncAllCancelled) await new Promise(res => setTimeout(res, 400));
@@ -1228,6 +1242,17 @@
         .catch(err => {
           attendeesContent.innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;
         });
+    }
+
+    function updateAttendeeSyncCell(aid, ok) {
+      const cell = document.querySelector(`.sync-status-cell[data-aid="${CSS.escape(String(aid))}"]`);
+      if (!cell) return;
+      const now = new Date().toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'});
+      if (ok) {
+        cell.innerHTML = `<span style="color:#22c55e;" title="Synced just now">✓</span> <span style="font-size:0.75rem;color:var(--text-muted);">${now}</span>`;
+      } else {
+        cell.innerHTML = `<span style="color:#ef4444;" title="Sync failed">✗</span>`;
+      }
     }
 
     function loadAttendeeDetail(attendeeId) {
@@ -1508,8 +1533,13 @@
         });
         const data = r.ok ? await r.json() : { error: (await r.text()) || 'Request failed' };
         renderSyncResult(data, body);
+        if (!training) {
+          const syncOk = !(data.error && !data.actions && !data.transaction_steps);
+          updateAttendeeSyncCell(currentAttendeeId, syncOk);
+        }
       } catch (err) {
         body.innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;
+        if (!training) updateAttendeeSyncCell(currentAttendeeId, false);
       } finally {
         if (runBtn) {
           runBtn.classList.remove('is-loading');

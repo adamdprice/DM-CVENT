@@ -408,6 +408,57 @@ def _sync_log_latest_live_success_for_attendee(cvent_attendee_id: str) -> dict:
     return {}
 
 
+def _sync_log_statuses_for_event(cvent_event_id: str) -> dict:
+    """
+    Return latest live sync result per attendee for an event.
+    Dict: {cvent_attendee_id: {"timestamp": ..., "status": ..., "ok": bool}}
+    """
+    eid = str(cvent_event_id or "").strip()
+    if not eid:
+        return {}
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        """
+                        SELECT DISTINCT ON (cvent_attendee_id)
+                            cvent_attendee_id, created_at, status
+                        FROM sync_audit_logs
+                        WHERE cvent_event_id = %s AND mode = 'live'
+                        ORDER BY cvent_attendee_id, id DESC
+                        """,
+                        (eid,),
+                    )
+                    rows = cur.fetchall()
+            return {
+                str(r[0]): {
+                    "timestamp": r[1].strftime("%Y-%m-%dT%H:%M:%SZ") if r[1] else "",
+                    "status": r[2] or "",
+                    "ok": (r[2] or "") in ("success", "partial"),
+                }
+                for r in rows if r[0]
+            }
+        except Exception as e:
+            app.logger.warning("sync_log batch query failed: %s", e)
+    with _sync_log_lock:
+        seen = {}
+        for x in _sync_logs:
+            if str(x.get("cvent_event_id") or "") != eid:
+                continue
+            if str(x.get("mode") or "").lower() != "live":
+                continue
+            aid = str(x.get("cvent_attendee_id") or "")
+            if aid and aid not in seen:
+                seen[aid] = {
+                    "timestamp": x.get("timestamp", ""),
+                    "status": x.get("status", ""),
+                    "ok": str(x.get("status") or "").lower() in ("success", "partial"),
+                }
+    return seen
+
+
 def _qm_ensure_table(cur) -> None:
     cur.execute(
         """
@@ -770,6 +821,11 @@ def sync_status():
         "status": latest.get("status"),
         "summary": latest.get("summary"),
     })
+
+
+@app.route("/api/events/<cvent_event_id>/sync-statuses")
+def api_event_sync_statuses(cvent_event_id):
+    return jsonify(_sync_log_statuses_for_event(cvent_event_id))
 
 
 def _get_speaker_event_answer(attendee: dict) -> str:
@@ -3860,6 +3916,7 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
         cvent_admission_item = (admission_item_override or "").strip()
     else:
         cvent_admission_item = (attendee.get("admission_item") or "").strip()
+    now_ms = int(datetime.now(timezone.utc).timestamp() * 1000)
     props = {
         "attendee_name": attendee_name,
         "company_name": (attendee.get("company_name") or "").strip(),
@@ -3868,6 +3925,7 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
         "cvent_amount_due": cvent_amount_due,
         "cvent_amount_excl_vattax": cvent_amount_excl_vattax,
         "cvent_attendee_id": cvent_id,
+        "last_cvent_sync": now_ms,
         "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
         "cvent_confirmation_number": (attendee.get("confirmation_number") or "").strip(),
         "cvent_invoice_number": (order.get("invoice_number") or "").strip(),

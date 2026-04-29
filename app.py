@@ -82,6 +82,7 @@ DEALMAKERS_GUEST_TYPES = frozenset({"Dealmakers Guest"})
 # Deal creation (workflow step 20)
 HUBSPOT_DEAL_PIPELINE = "726721932"
 HUBSPOT_DEAL_STAGE = "1191309199"
+HUBSPOT_DELSALE_STAGE = "1191309198"  # Stage for delsale-flagged attendees
 
 # App auth (email one-time code), aligned with Kinly pattern.
 SESSION_SECRET = os.getenv("SESSION_SECRET", "").strip() or None
@@ -859,7 +860,9 @@ def _build_deal_plan(
     reference_id = (attendee.get("reference_id") or "").strip()
     ref_no_delsale = "delsale" not in reference_id.lower()
 
-    all_met = is_accepted and has_positive_amount and ref_no_delsale
+    # delsale attendees still get a deal, just in a different pipeline stage
+    all_met = is_accepted and has_positive_amount
+    deal_stage = HUBSPOT_DELSALE_STAGE if not ref_no_delsale else HUBSPOT_DEAL_STAGE
     first = (attendee.get("first_name") or "").strip()
     last = (attendee.get("last_name") or "").strip()
     full_name = f"{first} {last}".strip() or "Unknown Attendee"
@@ -894,7 +897,7 @@ def _build_deal_plan(
                 props = {
                     "dealname": dealname,
                     "pipeline": HUBSPOT_DEAL_PIPELINE,
-                    "dealstage": HUBSPOT_DEAL_STAGE,
+                    "dealstage": deal_stage,
                     "company_name": (attendee.get("company_name") or "").strip(),
                     "country": (attendee.get("attendee_country") or "").strip(),
                     "cvent_admission_item": (attendee.get("admission_item") or "").strip(),
@@ -997,7 +1000,7 @@ def _build_deal_plan(
             props = {
                 "dealname": dealname,
                 "pipeline": HUBSPOT_DEAL_PIPELINE,
-                "dealstage": HUBSPOT_DEAL_STAGE,
+                "dealstage": deal_stage,
                 "company_name": (attendee.get("company_name") or "").strip(),
                 "country": (attendee.get("attendee_country") or "").strip(),
                 "cvent_admission_item": (attendee.get("admission_item") or "").strip(),
@@ -1107,7 +1110,7 @@ def _build_deal_plan(
                 props = {
                     "dealname": dealname,
                     "pipeline": HUBSPOT_DEAL_PIPELINE,
-                    "dealstage": HUBSPOT_DEAL_STAGE,
+                    "dealstage": deal_stage,
                     "company_name": (attendee.get("company_name") or "").strip(),
                     "country": (attendee.get("attendee_country") or "").strip(),
                     "cvent_admission_item": (attendee.get("admission_item") or "").strip(),
@@ -1140,7 +1143,7 @@ def _build_deal_plan(
                 props = {
                     "dealname": dealname,
                     "pipeline": HUBSPOT_DEAL_PIPELINE,
-                    "dealstage": HUBSPOT_DEAL_STAGE,
+                    "dealstage": deal_stage,
                     "company_name": (attendee.get("company_name") or "").strip(),
                     "country": (attendee.get("attendee_country") or "").strip(),
                     "cvent_admission_item": (attendee.get("admission_item") or "").strip(),
@@ -1241,7 +1244,7 @@ def _build_deal_plan(
                 props = {
                     "dealname": dealname,
                     "pipeline": HUBSPOT_DEAL_PIPELINE,
-                    "dealstage": HUBSPOT_DEAL_STAGE,
+                    "dealstage": deal_stage,
                     "company_name": (attendee.get("company_name") or "").strip(),
                     "country": (attendee.get("attendee_country") or "").strip(),
                     "cvent_admission_item": (attendee.get("admission_item") or "").strip(),
@@ -3830,6 +3833,16 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
         except (TypeError, ValueError):
             pass
 
+    amount_excl_vat_raw = (order.get("admission_item_amount_paid") or "").strip()
+    cvent_amount_excl_vattax = None
+    if amount_excl_vat_raw:
+        try:
+            n = float(amount_excl_vat_raw.replace(",", ""))
+            if n != 0:
+                cvent_amount_excl_vattax = n
+        except (TypeError, ValueError):
+            pass
+
     # Use only transaction-derived admission item when override is provided (even if ""); never attendee current for steps
     if admission_item_override is not None:
         cvent_admission_item = (admission_item_override or "").strip()
@@ -3841,6 +3854,7 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
         "country": (attendee.get("attendee_country") or "").strip(),
         "cvent_admission_item": cvent_admission_item,
         "cvent_amount_due": cvent_amount_due,
+        "cvent_amount_excl_vattax": cvent_amount_excl_vattax,
         "cvent_attendee_id": cvent_id,
         "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
         "cvent_confirmation_number": (attendee.get("confirmation_number") or "").strip(),

@@ -374,14 +374,24 @@
     async function setGlobalQuestionMapping(eventId, questionId, prop) {
       const key = eventId && questionId ? eventId + ':' + questionId : '';
       if (!key) return;
-      const body = prop && prop.name
-        ? { event_id: eventId, question_id: questionId, hubspot_property: prop.name, hubspot_property_label: prop.label || prop.name }
+      const propName = (prop && prop.name) ? prop.name.trim() : '';
+      const body = propName
+        ? { event_id: eventId, question_id: questionId, hubspot_property: propName, hubspot_property_label: (prop.label || propName).trim() }
         : { event_id: eventId, question_id: questionId, clear: true };
-      await fetch('/api/question-mappings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(body),
-      });
+      try {
+        const r = await fetch('/api/question-mappings', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body),
+        });
+        if (!r.ok) {
+          const errData = await r.json().catch(() => ({}));
+          throw new Error(errData.error || `Server error (${r.status})`);
+        }
+      } catch (e) {
+        alert('Failed to save mapping: ' + (e.message || e));
+        throw e;
+      }
       await loadQuestionMappingsCache();
     }
 
@@ -561,13 +571,15 @@
           filtered.map(p => `<li data-name="${escapeHtml(p.name)}" data-label="${escapeHtml(p.label || p.name)}">${escapeHtml(p.label || p.name)}</li>`).join('');
         ul.querySelectorAll('li').forEach(li => {
           li.addEventListener('click', async () => {
-            if (li.dataset.clear) {
-              await setGlobalQuestionMapping(eventId, questionId, null);
-            } else {
-              await setGlobalQuestionMapping(eventId, questionId, { name: li.dataset.name, label: li.dataset.label });
-            }
-            root.remove();
-            loadSetup(eventId, currentEventName);
+            try {
+              if (li.dataset.clear) {
+                await setGlobalQuestionMapping(eventId, questionId, null);
+              } else {
+                await setGlobalQuestionMapping(eventId, questionId, { name: li.dataset.name, label: li.dataset.label });
+              }
+              root.remove();
+              loadSetup(eventId, currentEventName);
+            } catch (e) { /* error already alerted in setGlobalQuestionMapping */ }
           });
         });
       }
@@ -780,13 +792,15 @@
           filtered.map(p => `<li data-name="${escapeHtml(p.name)}" data-label="${escapeHtml(p.label || p.name)}">${escapeHtml(p.label || p.name)}</li>`).join('');
         ul.querySelectorAll('li').forEach(li => {
           li.addEventListener('click', async () => {
-            if (li.dataset.clear) {
-              await setGlobalQuestionMapping(eventId, questionId, null);
-            } else {
-              await setGlobalQuestionMapping(eventId, questionId, { name: li.dataset.name, label: li.dataset.label });
-            }
-            root.remove();
-            if (onSave) onSave();
+            try {
+              if (li.dataset.clear) {
+                await setGlobalQuestionMapping(eventId, questionId, null);
+              } else {
+                await setGlobalQuestionMapping(eventId, questionId, { name: li.dataset.name, label: li.dataset.label });
+              }
+              root.remove();
+              if (onSave) onSave();
+            } catch (e) { /* error already alerted in setGlobalQuestionMapping */ }
           });
         });
       }

@@ -213,6 +213,17 @@
 
     <div id="screen-attendees" style="display: none;">
       <h2 style="font-size:1rem;color:var(--text-muted);margin:0 0 1rem;text-transform:uppercase;letter-spacing:0.05em;">Attendees for <span id="selected-event-name"></span></h2>
+      <div id="sync-all-bar" style="display:none;margin-bottom:1rem;">
+        <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+          <button type="button" id="sync-all-btn" class="back-btn" style="background:var(--accent);color:#fff;border:none;padding:0.5rem 1.25rem;border-radius:6px;cursor:pointer;font-size:0.9rem;">Sync All Attendees</button>
+          <button type="button" id="sync-all-cancel-btn" style="display:none;background:transparent;color:var(--text-muted);border:1px solid var(--border);padding:0.5rem 1rem;border-radius:6px;cursor:pointer;font-size:0.85rem;">Cancel</button>
+          <span id="sync-all-status" style="font-size:0.85rem;color:var(--text-muted);"></span>
+        </div>
+        <div id="sync-all-progress-bar" style="display:none;margin-top:0.5rem;height:4px;background:var(--border);border-radius:2px;overflow:hidden;">
+          <div id="sync-all-progress-fill" style="height:100%;background:var(--accent);width:0%;transition:width 0.3s;"></div>
+        </div>
+        <div id="sync-all-summary" style="display:none;margin-top:0.75rem;font-size:0.85rem;"></div>
+      </div>
       <div id="attendees-content"></div>
     </div>
 
@@ -1075,6 +1086,7 @@
       selectedEventName.textContent = currentEventName;
       showScreen('attendees');
       attendeesContent.innerHTML = '<span class="loading"></span>Loading attendees...';
+      document.getElementById('sync-all-bar').style.display = 'none';
 
       Promise.all([
         fetchJson(`/api/events/${encodeURIComponent(eventId)}/attendees`),
@@ -1108,6 +1120,102 @@
           });
           html += '</tbody></table></div></div>';
           attendeesContent.innerHTML = html;
+
+          // Show sync-all bar and wire up button
+          const syncAllBar = document.getElementById('sync-all-bar');
+          const syncAllBtn = document.getElementById('sync-all-btn');
+          const syncAllCancelBtn = document.getElementById('sync-all-cancel-btn');
+          const syncAllStatus = document.getElementById('sync-all-status');
+          const syncAllProgressBar = document.getElementById('sync-all-progress-bar');
+          const syncAllProgressFill = document.getElementById('sync-all-progress-fill');
+          const syncAllSummary = document.getElementById('sync-all-summary');
+          syncAllBar.style.display = 'block';
+          syncAllSummary.style.display = 'none';
+          syncAllSummary.innerHTML = '';
+          syncAllStatus.textContent = '';
+          syncAllProgressBar.style.display = 'none';
+          syncAllProgressFill.style.width = '0%';
+          syncAllCancelBtn.style.display = 'none';
+          syncAllBtn.disabled = false;
+          syncAllBtn.textContent = 'Sync All Attendees';
+
+          let syncAllCancelled = false;
+
+          syncAllBtn.onclick = async () => {
+            if (syncAllBtn.disabled) return;
+            syncAllCancelled = false;
+            syncAllBtn.disabled = true;
+            syncAllBtn.textContent = 'Syncing...';
+            syncAllCancelBtn.style.display = 'inline-block';
+            syncAllProgressBar.style.display = 'block';
+            syncAllProgressFill.style.width = '0%';
+            syncAllSummary.style.display = 'none';
+            syncAllSummary.innerHTML = '';
+
+            const qtyProdAll = getGlobalQuantityProductMappings();
+            const qtyItemProductMappings = {};
+            Object.entries(qtyProdAll).forEach(([k, v]) => {
+              const parts = String(k).split(':');
+              const evId = parts[0];
+              const qiId = parts.slice(1).join(':');
+              if (String(evId) === String(eventId) && qiId) qtyItemProductMappings[String(qiId)] = v;
+            });
+
+            let succeeded = 0, failed = 0, errors = [];
+            const total = attendees.length;
+
+            for (let i = 0; i < total; i++) {
+              if (syncAllCancelled) break;
+              const a = attendees[i];
+              const aid = String(a.id || '');
+              const contact = a.contact || {};
+              const name = [contact.firstName, contact.lastName].filter(Boolean).join(' ') || aid;
+              syncAllStatus.textContent = `Syncing ${i + 1} / ${total} — ${name}`;
+              syncAllProgressFill.style.width = `${Math.round((i / total) * 100)}%`;
+              try {
+                const r = await fetch('/api/hubspot/sync-attendee', {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({
+                    cvent_attendee_id: aid,
+                    cvent_event_id: eventId,
+                    training: false,
+                    quantity_item_product_mappings: qtyItemProductMappings,
+                  }),
+                });
+                const result = r.ok ? await r.json().catch(() => ({})) : { error: `HTTP ${r.status}` };
+                if (result.error && !result.actions) {
+                  failed++;
+                  errors.push(`${name}: ${result.error}`);
+                } else {
+                  succeeded++;
+                }
+              } catch (e) {
+                failed++;
+                errors.push(`${name}: ${e.message || 'Network error'}`);
+              }
+              // Small pause between attendees to stay well within HubSpot rate limits
+              if (i < total - 1 && !syncAllCancelled) await new Promise(res => setTimeout(res, 400));
+            }
+
+            syncAllProgressFill.style.width = '100%';
+            const wasCancelled = syncAllCancelled;
+            syncAllCancelled = false;
+            syncAllBtn.disabled = false;
+            syncAllBtn.textContent = 'Sync All Attendees';
+            syncAllCancelBtn.style.display = 'none';
+            const processed = succeeded + failed;
+            syncAllStatus.textContent = wasCancelled ? `Cancelled after ${processed} attendee(s).` : `Done — ${processed} synced.`;
+            syncAllSummary.style.display = 'block';
+            let summaryHtml = `<span style="color:var(--success,#22c55e);">✓ ${succeeded} succeeded</span>`;
+            if (failed > 0) {
+              summaryHtml += `&nbsp;&nbsp;<span style="color:var(--error,#ef4444);">✗ ${failed} failed</span>`;
+              summaryHtml += '<ul style="margin:0.5rem 0 0 1rem;color:var(--error,#ef4444);">' + errors.slice(0, 10).map(e => `<li>${escapeHtml(e)}</li>`).join('') + (errors.length > 10 ? `<li>...and ${errors.length - 10} more</li>` : '') + '</ul>';
+            }
+            syncAllSummary.innerHTML = summaryHtml;
+          };
+
+          syncAllCancelBtn.onclick = () => { syncAllCancelled = true; syncAllCancelBtn.disabled = true; syncAllCancelBtn.textContent = 'Cancelling...'; };
 
           attendeesContent.querySelectorAll('.attendee-row').forEach(row => {
             row.addEventListener('click', () => {

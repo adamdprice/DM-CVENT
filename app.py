@@ -84,6 +84,10 @@ HUBSPOT_DEAL_PIPELINE = "726721932"
 HUBSPOT_DEAL_STAGE = "1191309199"
 HUBSPOT_DELSALE_STAGE = "1191309198"  # Stage for delsale-flagged attendees
 
+# Association type IDs for attendee ↔ deal (USER_DEFINED)
+HUBSPOT_ASSOC_ATTENDEE_TO_DEAL = 42  # attendee → deal
+HUBSPOT_ASSOC_DEAL_TO_ATTENDEE = 41  # deal → attendee (unused in outbound calls but documented)
+
 # App auth (email one-time code), aligned with Kinly pattern.
 SESSION_SECRET = os.getenv("SESSION_SECRET", "").strip() or None
 SMTP_HOST = os.getenv("SMTP_HOST", "").strip() or None
@@ -4105,7 +4109,7 @@ def _execute_sync_step(
                     if _hubspot_update_deal(str(existing["id"]), update_props):
                         result["actions"].append(f"Updated deal for {event_name} (amount/tax)")
                 if result["attendee_id"]:
-                    if _hubspot_put_association(HUBSPOT_ATTENDEE_OBJECT, result["attendee_id"], "deals", str(existing["id"]), association_type_id=None):
+                    if _hubspot_put_association(HUBSPOT_ATTENDEE_OBJECT, result["attendee_id"], "deals", str(existing["id"]), association_type_id=HUBSPOT_ASSOC_ATTENDEE_TO_DEAL):
                         result["actions"].append("Associated attendee to deal")
                     else:
                         result["errors"].append("Failed to associate attendee to deal")
@@ -4142,7 +4146,7 @@ def _execute_sync_step(
                 association_type_id=None,
             )
         if result["attendee_id"]:
-            if _hubspot_put_association(HUBSPOT_ATTENDEE_OBJECT, result["attendee_id"], "deals", deal_id, association_type_id=None):
+            if _hubspot_put_association(HUBSPOT_ATTENDEE_OBJECT, result["attendee_id"], "deals", deal_id, association_type_id=HUBSPOT_ASSOC_ATTENDEE_TO_DEAL):
                 result["actions"].append("Associated attendee to deal")
             else:
                 result["errors"].append("Failed to associate attendee to deal")

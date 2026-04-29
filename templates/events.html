@@ -217,6 +217,7 @@
         <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
           <button type="button" id="sync-all-btn" class="back-btn" style="background:var(--accent);color:#fff;border:none;padding:0.5rem 1.25rem;border-radius:6px;cursor:pointer;font-size:0.9rem;">Sync All Attendees</button>
           <button type="button" id="sync-all-cancel-btn" style="display:none;background:transparent;color:var(--text-muted);border:1px solid var(--border);padding:0.5rem 1rem;border-radius:6px;cursor:pointer;font-size:0.85rem;">Cancel</button>
+          <button type="button" id="sync-clear-btn" style="background:transparent;color:var(--text-muted);border:1px solid var(--border);padding:0.5rem 1rem;border-radius:6px;cursor:pointer;font-size:0.85rem;">Clear sync status</button>
           <span id="sync-all-status" style="font-size:0.85rem;color:var(--text-muted);"></span>
         </div>
         <div id="sync-all-progress-bar" style="display:none;margin-top:0.5rem;height:4px;background:var(--border);border-radius:2px;overflow:hidden;">
@@ -1136,6 +1137,7 @@
           const syncAllBar = document.getElementById('sync-all-bar');
           const syncAllBtn = document.getElementById('sync-all-btn');
           const syncAllCancelBtn = document.getElementById('sync-all-cancel-btn');
+          const syncClearBtn = document.getElementById('sync-clear-btn');
           const syncAllStatus = document.getElementById('sync-all-status');
           const syncAllProgressBar = document.getElementById('sync-all-progress-bar');
           const syncAllProgressFill = document.getElementById('sync-all-progress-fill');
@@ -1230,6 +1232,30 @@
           };
 
           syncAllCancelBtn.onclick = () => { syncAllCancelled = true; syncAllCancelBtn.disabled = true; syncAllCancelBtn.textContent = 'Cancelling...'; };
+
+          syncClearBtn.onclick = async () => {
+            if (!confirm('Clear all sync status records for this event? This only resets the display — no HubSpot data is deleted.')) return;
+            syncClearBtn.disabled = true;
+            syncClearBtn.textContent = 'Clearing...';
+            try {
+              const r = await fetch(`/api/events/${encodeURIComponent(eventId)}/sync-statuses`, { method: 'DELETE' });
+              if (r.ok) {
+                document.querySelectorAll('.sync-status-cell').forEach(cell => {
+                  cell.innerHTML = '<span style="color:#9ca3af;" title="Not yet synced">—</span>';
+                });
+                syncAllStatus.textContent = 'Sync status cleared.';
+                syncAllSummary.style.display = 'none';
+              } else {
+                const j = await r.json().catch(() => ({}));
+                alert('Failed to clear: ' + (j.error || r.status));
+              }
+            } catch (e) {
+              alert('Error: ' + e.message);
+            } finally {
+              syncClearBtn.disabled = false;
+              syncClearBtn.textContent = 'Clear sync status';
+            }
+          };
 
           attendeesContent.querySelectorAll('.attendee-row').forEach(row => {
             row.addEventListener('click', () => {

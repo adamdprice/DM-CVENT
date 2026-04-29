@@ -831,6 +831,33 @@ def api_event_sync_statuses(cvent_event_id):
     return jsonify(_sync_log_statuses_for_event(cvent_event_id))
 
 
+@app.route("/api/events/<cvent_event_id>/sync-statuses", methods=["DELETE"])
+def api_event_clear_sync_statuses(cvent_event_id):
+    """Delete all sync_audit_logs for this event so attendees appear unsynced."""
+    eid = str(cvent_event_id or "").strip()
+    if not eid:
+        return jsonify({"error": "cvent_event_id required"}), 400
+    deleted = 0
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "DELETE FROM sync_audit_logs WHERE cvent_event_id = %s",
+                        (eid,),
+                    )
+                    deleted = cur.rowcount
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    else:
+        with _sync_log_lock:
+            before = len(_sync_logs)
+            _sync_logs[:] = [x for x in _sync_logs if str(x.get("cvent_event_id") or "") != eid]
+            deleted = before - len(_sync_logs)
+    return jsonify({"ok": True, "deleted": deleted})
+
+
 def _get_speaker_event_answer(attendee: dict) -> str:
     """
     Get answer to "Which event are you participating as a speaker?".

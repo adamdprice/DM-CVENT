@@ -114,6 +114,9 @@ _sync_log_lock = threading.Lock()
 _sync_logs = []
 _sync_logs_max = 500
 
+_question_mappings_lock = threading.Lock()
+_question_mappings_mem: dict = {}  # fallback when no DATABASE_URL: (event_id, question_id) -> row dict
+
 
 def _session_serializer():
     if not SESSION_SECRET:
@@ -400,6 +403,99 @@ def _sync_log_latest_live_success_for_attendee(cvent_attendee_id: str) -> dict:
     return {}
 
 
+def _qm_ensure_table(cur) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS question_mappings (
+            event_id TEXT NOT NULL,
+            question_id TEXT NOT NULL,
+            hubspot_property TEXT NOT NULL,
+            hubspot_property_label TEXT NOT NULL DEFAULT '',
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (event_id, question_id)
+        )
+        """
+    )
+
+
+def _question_mappings_get(event_id: str = None) -> list:
+    """Return all mappings, optionally filtered to a specific event."""
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    _qm_ensure_table(cur)
+                    if event_id:
+                        cur.execute(
+                            "SELECT event_id, question_id, hubspot_property, hubspot_property_label FROM question_mappings WHERE event_id = %s ORDER BY question_id",
+                            (event_id,),
+                        )
+                    else:
+                        cur.execute(
+                            "SELECT event_id, question_id, hubspot_property, hubspot_property_label FROM question_mappings ORDER BY event_id, question_id"
+                        )
+                    return [
+                        {"event_id": r[0], "question_id": r[1], "hubspot_property": r[2], "hubspot_property_label": r[3]}
+                        for r in cur.fetchall()
+                    ]
+        except Exception as e:
+            app.logger.warning("question_mappings_get db failed: %s", e)
+    with _question_mappings_lock:
+        rows = list(_question_mappings_mem.values())
+    if event_id:
+        rows = [r for r in rows if r.get("event_id") == event_id]
+    return rows
+
+
+def _question_mappings_upsert(event_id: str, question_id: str, hubspot_property: str, hubspot_property_label: str) -> None:
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    _qm_ensure_table(cur)
+                    cur.execute(
+                        """
+                        INSERT INTO question_mappings (event_id, question_id, hubspot_property, hubspot_property_label, updated_at)
+                        VALUES (%s, %s, %s, %s, NOW())
+                        ON CONFLICT (event_id, question_id) DO UPDATE
+                        SET hubspot_property = EXCLUDED.hubspot_property,
+                            hubspot_property_label = EXCLUDED.hubspot_property_label,
+                            updated_at = NOW()
+                        """,
+                        (event_id, question_id, hubspot_property, hubspot_property_label),
+                    )
+            return
+        except Exception as e:
+            app.logger.warning("question_mappings_upsert db failed: %s", e)
+    with _question_mappings_lock:
+        _question_mappings_mem[(event_id, question_id)] = {
+            "event_id": event_id,
+            "question_id": question_id,
+            "hubspot_property": hubspot_property,
+            "hubspot_property_label": hubspot_property_label,
+        }
+
+
+def _question_mappings_delete(event_id: str, question_id: str) -> None:
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    _qm_ensure_table(cur)
+                    cur.execute(
+                        "DELETE FROM question_mappings WHERE event_id = %s AND question_id = %s",
+                        (event_id, question_id),
+                    )
+            return
+        except Exception as e:
+            app.logger.warning("question_mappings_delete db failed: %s", e)
+    with _question_mappings_lock:
+        _question_mappings_mem.pop((event_id, question_id), None)
+
+
 def _send_otp_email(to_email: str, code: str) -> None:
     import ssl
     import smtplib
@@ -623,6 +719,30 @@ def sync_logs():
         "logs": _sync_log_list(limit=limit),
         "storage": "database" if DATABASE_URL else "memory",
     })
+
+
+@app.route("/api/question-mappings", methods=["GET"])
+def api_get_question_mappings():
+    event_id = (request.args.get("event_id") or "").strip() or None
+    return jsonify({"mappings": _question_mappings_get(event_id), "storage": "database" if DATABASE_URL else "memory"})
+
+
+@app.route("/api/question-mappings", methods=["POST"])
+def api_set_question_mapping():
+    data = request.get_json() or {}
+    event_id = (data.get("event_id") or "").strip()
+    question_id = (data.get("question_id") or "").strip()
+    if not event_id or not question_id:
+        return jsonify({"error": "event_id and question_id are required"}), 400
+    if data.get("clear"):
+        _question_mappings_delete(event_id, question_id)
+        return jsonify({"ok": True})
+    hubspot_property = (data.get("hubspot_property") or "").strip()
+    hubspot_property_label = (data.get("hubspot_property_label") or "").strip()
+    if not hubspot_property:
+        return jsonify({"error": "hubspot_property is required"}), 400
+    _question_mappings_upsert(event_id, question_id, hubspot_property, hubspot_property_label)
+    return jsonify({"ok": True})
 
 
 @app.route("/api/sync-status")
@@ -3657,7 +3777,7 @@ def _admission_from_journey_entry(entry: dict) -> tuple:
     return (name, aid)
 
 
-def _build_attendee_properties(attendee: dict, order: dict, admission_item_override: str = None) -> dict:
+def _build_attendee_properties(attendee: dict, order: dict, admission_item_override: str = None, question_mappings: list = None) -> dict:
     """
     Build HubSpot attendee properties matching workflow step 6 (Cvent API TEST).
     Returns dict of property name -> value (excluding empty/null).
@@ -3739,6 +3859,21 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
         "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
         "special_requirements": (attendee.get("special_requirements") or "").strip(),
     }
+    # Apply dynamic question mappings (configured per-event, stored server-side)
+    if question_mappings:
+        answers = attendee.get("answers") or []
+        for qm in question_mappings:
+            qid = str(qm.get("question_id") or "").strip()
+            prop = str(qm.get("hubspot_property") or "").strip()
+            if not qid or not prop:
+                continue
+            for ans in answers:
+                if str(ans.get("question_id") or "") == qid:
+                    v = str(ans.get("value") or "").strip()
+                    if v:
+                        props[prop] = v
+                    break
+
     # Remove empty strings and None
     return {k: v for k, v in props.items() if v not in ("", None)}
 
@@ -4075,7 +4210,8 @@ def hubspot_sync_attendee():
     order = fetch_order_data(cvent_event_id, cvent_attendee_id)
     first_name = (attendee.get("first_name") or "").strip()
     last_name = (attendee.get("last_name") or "").strip()
-    attendee_properties_full = _build_attendee_properties(attendee, order)
+    event_question_mappings = _question_mappings_get(cvent_event_id)
+    attendee_properties_full = _build_attendee_properties(attendee, order, question_mappings=event_question_mappings)
 
     admission_item_id = (attendee.get("admission_item_id") or "").strip()
     assoc_result = _resolve_association_label_and_events(
@@ -4436,10 +4572,8 @@ def hubspot_sync_attendee():
                         item["simulated_from_step_1"] = True
             # Use only transaction-derived admission item for this step (never fall back to attendee current)
             attendee_properties_k = _build_attendee_properties(
-                attendee, order_k, admission_item_override=admission_item_name_k
+                attendee, order_k, admission_item_override=admission_item_name_k, question_mappings=event_question_mappings
             )
-            step_report = {
-                "training_mode": True,
                 "message": report["message"],
                 "transaction_step_number": k,
                 "transaction_step_intro": step_intro,
@@ -4707,7 +4841,7 @@ def hubspot_sync_attendee():
         fs_associations_step = list(assoc_result_k.get("fs_associations", []))
         # Use only transaction-derived admission item for this step (never fall back to attendee current)
         attendee_properties_k = _build_attendee_properties(
-            attendee, order_k, admission_item_override=admission_item_name_k
+            attendee, order_k, admission_item_override=admission_item_name_k, question_mappings=event_question_mappings
         )
         attendee_exists_k = k > 1
         deal_result_k = _build_deal_plan(

@@ -349,20 +349,40 @@
       return 'green';
     }
 
-    const GLOBAL_MAPPINGS_KEY = 'cvent_global_question_mappings';
-    function getGlobalQuestionMappings() {
+    // Question mappings — loaded from server, not localStorage
+    let questionMappingsCache = {};  // keyed by "eventId:questionId" -> { name, label }
+
+    async function loadQuestionMappingsCache() {
       try {
-        const raw = localStorage.getItem(GLOBAL_MAPPINGS_KEY);
-        return raw ? JSON.parse(raw) : {};
-      } catch { return {}; }
+        const r = await fetch('/api/question-mappings');
+        const data = r.ok ? await r.json() : {};
+        const fresh = {};
+        (data.mappings || []).forEach(m => {
+          const key = m.event_id + ':' + m.question_id;
+          fresh[key] = { name: m.hubspot_property, label: m.hubspot_property_label || m.hubspot_property };
+        });
+        questionMappingsCache = fresh;
+      } catch (e) {
+        // keep stale cache on error
+      }
     }
-    function setGlobalQuestionMapping(eventId, questionId, prop) {
-      const mappings = getGlobalQuestionMappings();
+
+    function getGlobalQuestionMappings() {
+      return questionMappingsCache;
+    }
+
+    async function setGlobalQuestionMapping(eventId, questionId, prop) {
       const key = eventId && questionId ? eventId + ':' + questionId : '';
       if (!key) return;
-      if (prop && prop.name) mappings[key] = { name: prop.name, label: prop.label || prop.name };
-      else delete mappings[key];
-      localStorage.setItem(GLOBAL_MAPPINGS_KEY, JSON.stringify(mappings));
+      const body = prop && prop.name
+        ? { event_id: eventId, question_id: questionId, hubspot_property: prop.name, hubspot_property_label: prop.label || prop.name }
+        : { event_id: eventId, question_id: questionId, clear: true };
+      await fetch('/api/question-mappings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      await loadQuestionMappingsCache();
     }
 
     const GLOBAL_QTY_PRODUCT_KEY = 'cvent_quantity_item_hubspot_products';
@@ -540,11 +560,11 @@
         ul.innerHTML = '<li data-clear="1" style="color:var(--text-muted);font-style:italic;">— Clear mapping</li>' +
           filtered.map(p => `<li data-name="${escapeHtml(p.name)}" data-label="${escapeHtml(p.label || p.name)}">${escapeHtml(p.label || p.name)}</li>`).join('');
         ul.querySelectorAll('li').forEach(li => {
-          li.addEventListener('click', () => {
+          li.addEventListener('click', async () => {
             if (li.dataset.clear) {
-              setGlobalQuestionMapping(eventId, questionId, null);
+              await setGlobalQuestionMapping(eventId, questionId, null);
             } else {
-              setGlobalQuestionMapping(eventId, questionId, { name: li.dataset.name, label: li.dataset.label });
+              await setGlobalQuestionMapping(eventId, questionId, { name: li.dataset.name, label: li.dataset.label });
             }
             root.remove();
             loadSetup(eventId, currentEventName);
@@ -575,7 +595,7 @@
           hubspotProperties = [];
           const props = await loadHubspotProperties();
           const newProp = props.find(p => p.name === data.name) || { name: data.name, label: data.label };
-          setGlobalQuestionMapping(eventId, questionId, newProp);
+          await setGlobalQuestionMapping(eventId, questionId, newProp);
           root.remove();
           loadSetup(eventId, currentEventName);
         } catch (err) {
@@ -698,7 +718,10 @@
         return;
       }
       questionMappingsContent.innerHTML = '<span class="loading"></span>Loading questions...';
-      fetchJson(`/api/events/${encodeURIComponent(selectedEventId)}/attendees`).then(({ ok, data }) => {
+      Promise.all([
+        fetchJson(`/api/events/${encodeURIComponent(selectedEventId)}/attendees`),
+        loadQuestionMappingsCache(),
+      ]).then(([{ ok, data }]) => {
         if (data.error) {
           questionMappingsContent.innerHTML = `<div class="error-msg">${escapeHtml(data.error)}</div>`;
           return;
@@ -756,11 +779,11 @@
         ul.innerHTML = '<li data-clear="1" style="color:var(--text-muted);font-style:italic;">— Clear mapping</li>' +
           filtered.map(p => `<li data-name="${escapeHtml(p.name)}" data-label="${escapeHtml(p.label || p.name)}">${escapeHtml(p.label || p.name)}</li>`).join('');
         ul.querySelectorAll('li').forEach(li => {
-          li.addEventListener('click', () => {
+          li.addEventListener('click', async () => {
             if (li.dataset.clear) {
-              setGlobalQuestionMapping(eventId, questionId, null);
+              await setGlobalQuestionMapping(eventId, questionId, null);
             } else {
-              setGlobalQuestionMapping(eventId, questionId, { name: li.dataset.name, label: li.dataset.label });
+              await setGlobalQuestionMapping(eventId, questionId, { name: li.dataset.name, label: li.dataset.label });
             }
             root.remove();
             if (onSave) onSave();
@@ -791,7 +814,7 @@
           hubspotProperties = [];
           await loadHubspotProperties();
           const newProp = { name: data.name, label: data.label };
-          setGlobalQuestionMapping(eventId, questionId, newProp);
+          await setGlobalQuestionMapping(eventId, questionId, newProp);
           root.remove();
           if (onSave) onSave();
         } catch (err) {
@@ -885,6 +908,7 @@
         eventSearch.addEventListener('input', () => renderEventsTable(eventSearch.value));
 
         await loadHubspotEvents();
+        await loadQuestionMappingsCache();
         const attendeePromises = eventsData.map(ev => fetchJson(`/api/events/${encodeURIComponent(ev.id)}/attendees`));
         const results = await Promise.all(attendeePromises);
         eventsData.forEach((ev, i) => {
@@ -911,8 +935,9 @@
 
       Promise.all([
         fetchJson(`/api/events/${encodeURIComponent(eventId)}/attendees`),
-        loadHubspotEvents()
-      ]).then(([{ ok, data }, _]) => {
+        loadHubspotEvents(),
+        loadQuestionMappingsCache(),
+      ]).then(([{ ok, data }, _1, _2]) => {
           if (data.error) {
             setupContent.innerHTML = `<div class="error-msg">${escapeHtml(data.error)}</div>`;
             return;

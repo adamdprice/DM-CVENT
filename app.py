@@ -122,6 +122,9 @@ _sync_logs_max = 500
 _question_mappings_lock = threading.Lock()
 _question_mappings_mem: dict = {}  # fallback when no DATABASE_URL: (event_id, question_id) -> row dict
 
+_cvent_token_lock = threading.Lock()
+_cvent_token_cache: dict = {"token": None, "expires_at": 0.0}
+
 
 def _session_serializer():
     if not SESSION_SECRET:
@@ -1538,36 +1541,43 @@ def lookup_attendee_cvent(cvent_event_id: str, cvent_attendee_id: str, access_to
 
 
 def fetch_cvent_token() -> str:
-    """Get OAuth2 access token from Cvent."""
-    if not CV_CLIENT_ID or not CV_CLIENT_SECRET:
-        raise ValueError("Missing secrets: CV_CLIENT_ID / CV_CLIENT_SECRET")
+    """Get OAuth2 access token from Cvent, reusing a cached token until 60s before expiry."""
+    import time, base64
+    with _cvent_token_lock:
+        if _cvent_token_cache["token"] and time.time() < _cvent_token_cache["expires_at"] - 60:
+            return _cvent_token_cache["token"]
 
-    import base64
-    token_url = f"{CV_API_BASE.rstrip('/')}/ea/oauth2/token"
-    basic = base64.b64encode(f"{CV_CLIENT_ID}:{CV_CLIENT_SECRET}".encode()).decode()
+        if not CV_CLIENT_ID or not CV_CLIENT_SECRET:
+            raise ValueError("Missing secrets: CV_CLIENT_ID / CV_CLIENT_SECRET")
 
-    # Cvent requires grant_type and client_id in body; scope is optional
-    res = requests.post(
-        token_url,
-        headers={
-            "Content-Type": "application/x-www-form-urlencoded",
-            "Authorization": f"Basic {basic}",
-        },
-        data={
-            "grant_type": "client_credentials",
-            "client_id": CV_CLIENT_ID,
-        },
-        timeout=30,
-    )
-    text = res.text
-    if not res.ok:
-        raise RuntimeError(f"Token request failed ({res.status_code}): {text}")
+        token_url = f"{CV_API_BASE.rstrip('/')}/ea/oauth2/token"
+        basic = base64.b64encode(f"{CV_CLIENT_ID}:{CV_CLIENT_SECRET}".encode()).decode()
 
-    data = res.json()
-    token = data.get("access_token")
-    if not token:
-        raise RuntimeError("No access_token returned from Cvent.")
-    return token
+        res = requests.post(
+            token_url,
+            headers={
+                "Content-Type": "application/x-www-form-urlencoded",
+                "Authorization": f"Basic {basic}",
+            },
+            data={
+                "grant_type": "client_credentials",
+                "client_id": CV_CLIENT_ID,
+            },
+            timeout=30,
+        )
+        text = res.text
+        if not res.ok:
+            raise RuntimeError(f"Token request failed ({res.status_code}): {text}")
+
+        data = res.json()
+        token = data.get("access_token")
+        if not token:
+            raise RuntimeError("No access_token returned from Cvent.")
+
+        expires_in = int(data.get("expires_in") or 3600)
+        _cvent_token_cache["token"] = token
+        _cvent_token_cache["expires_at"] = time.time() + expires_in
+        return token
 
 
 def fetch_order_data(cvent_event_id: str, cvent_attendee_id: str) -> dict:

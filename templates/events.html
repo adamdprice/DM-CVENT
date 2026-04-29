@@ -355,15 +355,17 @@
     async function loadQuestionMappingsCache() {
       try {
         const r = await fetch('/api/question-mappings');
-        const data = r.ok ? await r.json() : {};
+        if (!r.ok) return;
+        const data = await r.json().catch(() => null);
+        if (!data || !Array.isArray(data.mappings)) return;
         const fresh = {};
-        (data.mappings || []).forEach(m => {
+        data.mappings.forEach(m => {
           const key = m.event_id + ':' + m.question_id;
           fresh[key] = { name: m.hubspot_property, label: m.hubspot_property_label || m.hubspot_property };
         });
         questionMappingsCache = fresh;
       } catch (e) {
-        // keep stale cache on error
+        // keep stale cache on network error
       }
     }
 
@@ -392,7 +394,15 @@
         alert('Failed to save mapping: ' + (e.message || e));
         throw e;
       }
-      await loadQuestionMappingsCache();
+      // Optimistically update the cache immediately so the UI reflects the save
+      // even if the subsequent refresh GET is slow or fails
+      if (propName) {
+        questionMappingsCache[key] = { name: propName, label: (prop.label || propName).trim() };
+      } else {
+        delete questionMappingsCache[key];
+      }
+      // Then do a full refresh in the background (best-effort; failures keep the optimistic value)
+      loadQuestionMappingsCache();
     }
 
     const GLOBAL_QTY_PRODUCT_KEY = 'cvent_quantity_item_hubspot_products';

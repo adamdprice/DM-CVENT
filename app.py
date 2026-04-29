@@ -3629,8 +3629,16 @@ def _hubspot_put_association(
                 headers={"Authorization": f"Bearer {HUBSPOT_TOKEN}"},
                 timeout=15,
             )
-        return r.ok or r.status_code in (200, 201)
-    except Exception:
+        ok = r.ok or r.status_code in (200, 201)
+        if not ok:
+            app.logger.warning(
+                "put_association failed: %s→%s/%s→%s/%s status=%s body=%s",
+                from_type, from_id, to_type, to_id, association_type_id,
+                r.status_code, r.text[:300],
+            )
+        return ok
+    except Exception as e:
+        app.logger.warning("put_association exception: %s→%s/%s→%s/%s err=%s", from_type, from_id, to_type, to_id, association_type_id, e)
         return False
 
 

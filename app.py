@@ -684,7 +684,7 @@ def _fetch_cvent_attendees_basic(event_id: str) -> list:
         all_attendees = []
         url = f"{api_base}/attendees?limit=100&filter={filter_expr}"
         for _ in range(200):
-            r = requests.get(url, headers=headers, timeout=30)
+            r = _cvent_request_with_retry("GET", url, headers=headers, timeout=30)
             if not r.ok:
                 break
             j = r.json() if r.text else {}
@@ -746,7 +746,7 @@ def _run_event_scheduled_sync(event_id: str, event_name: str) -> tuple:
         except Exception as e:
             app.logger.warning("Scheduler sync failed for attendee %s: %s", aid, e)
             errors += 1
-        time.sleep(0.5)
+        time.sleep(1.0)
     return synced, skipped, errors
 
 
@@ -1797,7 +1797,7 @@ def lookup_attendee_cvent(cvent_event_id: str, cvent_attendee_id: str, access_to
     try:
         filter_expr = urllib.parse.quote(f"event.id eq '{cvent_event_id}'")
         url = f"{api_base}/attendees?limit=200&filter={filter_expr}"
-        r = requests.get(url, headers=headers, timeout=30)
+        r = _cvent_request_with_retry("GET", url, headers=headers, timeout=30)
         data = r.json() if r.text else {}
         items = data.get("data", []) if isinstance(data.get("data"), list) else []
 
@@ -1805,7 +1805,8 @@ def lookup_attendee_cvent(cvent_event_id: str, cvent_attendee_id: str, access_to
         question_text_by_id = {}
         try:
             filt = urllib.parse.quote(f"event.id eq '{cvent_event_id}'")
-            eq_r = requests.get(
+            eq_r = _cvent_request_with_retry(
+                "GET",
                 f"{api_base}/event-questions?limit=100&filter={filt}",
                 headers=headers,
                 timeout=15,
@@ -1969,6 +1970,31 @@ def lookup_attendee_cvent(cvent_event_id: str, cvent_attendee_id: str, access_to
         }
 
 
+def _cvent_request_with_retry(method: str, url: str, headers: dict, timeout: int = 30, max_retries: int = 4, **kwargs):
+    """
+    Wrapper around requests.get/post that retries on Cvent 429 responses.
+    Waits for the Retry-After header value (or exponential backoff: 5, 10, 20, 40s).
+    """
+    import time as _time
+    backoff = 5
+    for attempt in range(max_retries + 1):
+        r = requests.request(method, url, headers=headers, timeout=timeout, **kwargs)
+        if r.status_code != 429:
+            return r
+        if attempt == max_retries:
+            app.logger.warning("Cvent 429 after %d retries: %s", max_retries, url)
+            return r
+        wait = backoff
+        try:
+            wait = int(r.headers.get("Retry-After", backoff))
+        except (TypeError, ValueError):
+            pass
+        app.logger.info("Cvent 429 — retrying in %ds (attempt %d/%d): %s", wait, attempt + 1, max_retries, url)
+        _time.sleep(wait)
+        backoff = min(backoff * 2, 60)
+    return r  # unreachable but satisfies linters
+
+
 def fetch_cvent_token() -> str:
     """Get OAuth2 access token from Cvent, reusing a cached token until 60s before expiry."""
     import time, base64
@@ -2081,13 +2107,13 @@ def fetch_order_data(cvent_event_id: str, cvent_attendee_id: str) -> dict:
     headers = {"Accept": "application/json", "Authorization": f"Bearer {access_token}"}
 
     def fetch_json(url):
-        r = requests.get(url, headers=headers, timeout=30)
+        r = _cvent_request_with_retry("GET", url, headers=headers, timeout=30)
         try:
             j = r.json() if r.text else {}
         except json.JSONDecodeError:
             j = {"raw": r.text}
         if not r.ok:
-            raise RuntimeError(f"Cvent API failed ({r.status_code}) {url}: {json.dumps(j)}")
+            raise RuntimeError(f"Cvent API ({r.status_code}): {json.dumps(j)}")
         return j
 
     def paginate(first_url, max_pages=200):

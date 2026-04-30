@@ -1195,7 +1195,7 @@ def api_event_clear_sync_statuses(cvent_event_id):
 
 @app.route("/api/events/<cvent_event_id>/sync-statuses/<cvent_attendee_id>", methods=["DELETE"])
 def api_attendee_clear_sync_status(cvent_event_id, cvent_attendee_id):
-    """Delete sync_audit_logs for a single attendee within an event."""
+    """Delete sync_audit_logs for a single attendee and clear last_cvent_sync on their HubSpot record."""
     eid = str(cvent_event_id or "").strip()
     aid = str(cvent_attendee_id or "").strip()
     if not eid or not aid:
@@ -1218,6 +1218,21 @@ def api_attendee_clear_sync_status(cvent_event_id, cvent_attendee_id):
             before = len(_sync_logs)
             _sync_logs[:] = [x for x in _sync_logs if not (str(x.get("cvent_event_id") or "") == eid and str(x.get("cvent_attendee_id") or "") == aid)]
             deleted = before - len(_sync_logs)
+    # Also clear last_cvent_sync on the HubSpot attendee record if it exists.
+    if HUBSPOT_TOKEN:
+        try:
+            hs_attendee = _hubspot_search_attendee_by_cvent_id(aid)
+            if hs_attendee:
+                hs_id = str(hs_attendee.get("id") or "")
+                if hs_id:
+                    requests.patch(
+                        f"https://api.hubapi.com/crm/v3/objects/{HUBSPOT_ATTENDEE_OBJECT}/{hs_id}",
+                        headers={"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"},
+                        json={"properties": {"last_cvent_sync": ""}},
+                        timeout=15,
+                    )
+        except Exception as e:
+            app.logger.warning("api_attendee_clear_sync_status: failed to clear HubSpot last_cvent_sync: %s", e)
     return jsonify({"ok": True, "deleted": deleted})
 
 

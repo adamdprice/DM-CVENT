@@ -1154,14 +1154,15 @@
           }
           const syncStatuses = syncData || {};
 
+          const eraserBtn = (aid) => `<button class="sync-clear-one-btn" data-aid="${escapeHtml(String(aid))}" title="Clear sync status" style="background:none;border:none;cursor:pointer;padding:0 0 0 4px;opacity:0.45;font-size:0.85rem;vertical-align:middle;" onclick="event.stopPropagation()">🗑️</button>`;
           function syncCell(aid) {
             const s = syncStatuses[String(aid)];
             if (!s) return '<td class="sync-status-cell" data-aid="' + escapeHtml(String(aid)) + '"><span style="color:#9ca3af;" title="Not yet synced">—</span></td>';
             if (s.ok) {
               const ts = s.timestamp ? new Date(s.timestamp).toLocaleString('en-GB', {day:'2-digit',month:'short',hour:'2-digit',minute:'2-digit'}) : '';
-              return `<td class="sync-status-cell" data-aid="${escapeHtml(String(aid))}"><span style="color:#22c55e;" title="Synced ${escapeHtml(s.timestamp)}">✓</span> <span style="font-size:0.75rem;color:var(--text-muted);">${escapeHtml(ts)}</span></td>`;
+              return `<td class="sync-status-cell" data-aid="${escapeHtml(String(aid))}"><span style="color:#22c55e;" title="Synced ${escapeHtml(s.timestamp)}">✓</span> <span style="font-size:0.75rem;color:var(--text-muted);">${escapeHtml(ts)}</span>${eraserBtn(aid)}</td>`;
             } else {
-              return `<td class="sync-status-cell" data-aid="${escapeHtml(String(aid))}"><span style="color:#ef4444;" title="Last sync: ${escapeHtml(s.status)}">✗</span></td>`;
+              return `<td class="sync-status-cell" data-aid="${escapeHtml(String(aid))}"><span style="color:#ef4444;" title="Last sync: ${escapeHtml(s.status)}">✗</span>${eraserBtn(aid)}</td>`;
             }
           }
 
@@ -1181,6 +1182,35 @@
           });
           html += '</tbody></table></div></div>';
           attendeesContent.innerHTML = html;
+
+          // Wire up individual sync-clear (eraser) buttons via event delegation
+          attendeesContent.addEventListener('click', async (e) => {
+            const btn = e.target.closest('.sync-clear-one-btn');
+            if (!btn) return;
+            e.stopPropagation();
+            const aid = btn.dataset.aid;
+            const row = btn.closest('tr');
+            const name = row ? (row.cells[0] || {}).textContent || aid : aid;
+            if (!confirm(`Clear sync status for ${name}?\n\nThis only resets the display — no HubSpot data is deleted.`)) return;
+            btn.disabled = true;
+            btn.textContent = '…';
+            try {
+              const r = await fetch(`/api/events/${encodeURIComponent(eventId)}/sync-statuses/${encodeURIComponent(aid)}`, { method: 'DELETE' });
+              if (r.ok) {
+                const cell = document.querySelector(`.sync-status-cell[data-aid="${CSS.escape(String(aid))}"]`);
+                if (cell) cell.innerHTML = '<span style="color:#9ca3af;" title="Not yet synced">—</span>';
+              } else {
+                const j = await r.json().catch(() => ({}));
+                alert('Error: ' + (j.error || r.status));
+                btn.disabled = false;
+                btn.textContent = '🗑️';
+              }
+            } catch (ex) {
+              alert('Error: ' + ex.message);
+              btn.disabled = false;
+              btn.textContent = '🗑️';
+            }
+          }, { once: false });
 
           // Show sync-all bar and wire up button
           const syncAllBar = document.getElementById('sync-all-bar');
@@ -1327,10 +1357,11 @@
       const cell = document.querySelector(`.sync-status-cell[data-aid="${CSS.escape(String(aid))}"]`);
       if (!cell) return;
       const now = new Date().toLocaleString('en-GB', {day:'2-digit', month:'short', hour:'2-digit', minute:'2-digit'});
+      const erBtn = `<button class="sync-clear-one-btn" data-aid="${String(aid).replace(/"/g,'&quot;')}" title="Clear sync status" style="background:none;border:none;cursor:pointer;padding:0 0 0 4px;opacity:0.45;font-size:0.85rem;vertical-align:middle;" onclick="event.stopPropagation()">🗑️</button>`;
       if (ok) {
-        cell.innerHTML = `<span style="color:#22c55e;" title="Synced just now">✓</span> <span style="font-size:0.75rem;color:var(--text-muted);">${now}</span>`;
+        cell.innerHTML = `<span style="color:#22c55e;" title="Synced just now">✓</span> <span style="font-size:0.75rem;color:var(--text-muted);">${now}</span>${erBtn}`;
       } else {
-        cell.innerHTML = `<span style="color:#ef4444;" title="Sync failed">✗</span>`;
+        cell.innerHTML = `<span style="color:#ef4444;" title="Sync failed">✗</span>${erBtn}`;
       }
     }
 

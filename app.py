@@ -649,6 +649,30 @@ def _get_last_successful_sync_times(event_id: str) -> dict:
         return {}
 
 
+def _attendee_is_previously_synced(event_id: str, attendee_id: str) -> bool:
+    """Returns True if this attendee has at least one successful live sync log entry."""
+    eid = str(event_id or "").strip()
+    aid = str(attendee_id or "").strip()
+    if not eid or not aid or not DATABASE_URL:
+        return False
+    try:
+        import psycopg2
+        with psycopg2.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT 1 FROM sync_audit_logs
+                    WHERE cvent_event_id=%s AND cvent_attendee_id=%s AND mode='live' AND status IN ('success','partial')
+                    LIMIT 1
+                    """,
+                    (eid, aid),
+                )
+                return cur.fetchone() is not None
+    except Exception as e:
+        app.logger.warning("_attendee_is_previously_synced failed: %s", e)
+        return False
+
+
 def _fetch_cvent_attendees_basic(event_id: str) -> list:
     """Fetch all attendees for an event from Cvent (id + lastModified only)."""
     try:
@@ -688,6 +712,12 @@ def _run_event_scheduled_sync(event_id: str, event_name: str) -> tuple:
     for a in attendees:
         aid = str(a.get("id") or "").strip()
         if not aid:
+            continue
+        cvent_status = (a.get("status") or "").strip().lower()
+        is_previously_synced = aid in last_syncs
+        # Skip non-accepted attendees that have never been synced before.
+        if cvent_status != "accepted" and not is_previously_synced:
+            skipped += 1
             continue
         last_modified_str = (a.get("lastModified") or a.get("attendeeLastModified") or "").strip()
         last_sync_dt = last_syncs.get(aid)
@@ -1159,6 +1189,34 @@ def api_event_clear_sync_statuses(cvent_event_id):
         with _sync_log_lock:
             before = len(_sync_logs)
             _sync_logs[:] = [x for x in _sync_logs if str(x.get("cvent_event_id") or "") != eid]
+            deleted = before - len(_sync_logs)
+    return jsonify({"ok": True, "deleted": deleted})
+
+
+@app.route("/api/events/<cvent_event_id>/sync-statuses/<cvent_attendee_id>", methods=["DELETE"])
+def api_attendee_clear_sync_status(cvent_event_id, cvent_attendee_id):
+    """Delete sync_audit_logs for a single attendee within an event."""
+    eid = str(cvent_event_id or "").strip()
+    aid = str(cvent_attendee_id or "").strip()
+    if not eid or not aid:
+        return jsonify({"error": "cvent_event_id and cvent_attendee_id required"}), 400
+    deleted = 0
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "DELETE FROM sync_audit_logs WHERE cvent_event_id = %s AND cvent_attendee_id = %s",
+                        (eid, aid),
+                    )
+                    deleted = cur.rowcount
+        except Exception as e:
+            return jsonify({"error": str(e)}), 500
+    else:
+        with _sync_log_lock:
+            before = len(_sync_logs)
+            _sync_logs[:] = [x for x in _sync_logs if not (str(x.get("cvent_event_id") or "") == eid and str(x.get("cvent_attendee_id") or "") == aid)]
             deleted = before - len(_sync_logs)
     return jsonify({"ok": True, "deleted": deleted})
 
@@ -4657,6 +4715,45 @@ def hubspot_sync_attendee():
         err = "Attendee has no email address - cannot search/create HubSpot contact"
         _log_sync("failed", attendee_name=attendee.get("attendee_name", ""), summary=err, errors=[err], actions=[])
         return jsonify({"error": err}), 400
+
+    reg_status = (attendee.get("registration_status") or "").strip()
+    is_cancelled = reg_status.lower() == "cancelled"
+    is_accepted = reg_status.lower() == "accepted"
+    previously_synced = _attendee_is_previously_synced(cvent_event_id, cvent_attendee_id)
+
+    # Skip non-accepted attendees that have never been synced.
+    if not is_accepted and not previously_synced:
+        msg = f"Attendee status is '{reg_status}' and has not been previously synced — skipped"
+        _log_sync("skipped", attendee_name=attendee.get("attendee_name", ""), summary=msg, errors=[], actions=[msg])
+        return jsonify({"skipped": True, "reason": msg}), 200
+
+    # Cancelled + previously synced: only update status fields, no associations or deals.
+    if is_cancelled and previously_synced and not training:
+        attendee_result = _hubspot_search_attendee_by_cvent_id(cvent_attendee_id)
+        if attendee_result:
+            attendee_id = str(attendee_result.get("id") or "")
+            props = {
+                "cvent_reg_status": reg_status,
+                "cvent_cancelled": "true",
+                "last_cvent_sync": int(__import__('datetime').datetime.now(__import__('datetime').timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000),
+            }
+            try:
+                import requests as _req
+                _req.patch(
+                    f"https://api.hubapi.com/crm/v3/objects/{HUBSPOT_ATTENDEE_OBJECT}/{attendee_id}",
+                    headers={"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"},
+                    json={"properties": props},
+                    timeout=15,
+                )
+            except Exception:
+                pass
+            actions = [f"Updated cancelled attendee status fields only (cvent_reg_status, cvent_cancelled)"]
+            _log_sync("success", attendee_name=attendee.get("attendee_name", ""), summary="Cancelled attendee — status fields updated only.", errors=[], actions=actions)
+            return jsonify({"ok": True, "cancelled_minimal_update": True, "actions": actions}), 200
+        else:
+            msg = "Attendee is Cancelled and has no HubSpot record to update — skipped"
+            _log_sync("skipped", attendee_name=attendee.get("attendee_name", ""), summary=msg, errors=[], actions=[msg])
+            return jsonify({"skipped": True, "reason": msg}), 200
 
     order = fetch_order_data(cvent_event_id, cvent_attendee_id)
     first_name = (attendee.get("first_name") or "").strip()

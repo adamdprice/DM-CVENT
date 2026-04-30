@@ -4381,6 +4381,13 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
         cvent_admission_item = (admission_item_override or "").strip()
     else:
         cvent_admission_item = (attendee.get("admission_item") or "").strip()
+
+    # Discount codes: join all codes from the order as a semicolon-separated string
+    discount_codes_list = order.get("discount_codes") or []
+    cvent_discount_code = "; ".join(
+        dc.get("code", "") for dc in discount_codes_list if dc.get("code")
+    ).strip()
+
     _now = datetime.now(timezone.utc)
     now_ms = int(datetime(_now.year, _now.month, _now.day, tzinfo=timezone.utc).timestamp() * 1000)
     props = {
@@ -4391,6 +4398,7 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
         "cvent_amount_due": cvent_amount_due,
         "cvent_amount_excl_vattax": cvent_amount_excl_vattax,
         "cvent_attendee_id": cvent_id,
+        "cvent_discount_code": cvent_discount_code,
         "last_cvent_sync": now_ms,
         "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
         "cvent_confirmation_number": (attendee.get("confirmation_number") or "").strip(),

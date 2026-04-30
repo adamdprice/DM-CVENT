@@ -193,6 +193,21 @@
         <p style="font-size:0.9rem;color:var(--text-muted);margin:0 0 0.75rem;">Map Cvent question codes to HubSpot Attendee properties. These mappings apply to all events.</p>
         <button type="button" class="back-btn" id="open-question-mappings">Configure question mappings →</button>
       </div>
+      <div class="card" style="margin-bottom:1rem;">
+        <h2>Backfill discount codes</h2>
+        <p style="font-size:0.9rem;color:var(--text-muted);margin:0 0 0.75rem;">One-time sync: finds all HubSpot attendees that are missing a discount code, looks each one up in Cvent, and populates the <code>cvent_discount_code</code> field.</p>
+        <div style="display:flex;align-items:center;gap:1rem;flex-wrap:wrap;">
+          <button type="button" id="backfill-dc-btn" class="back-btn" style="background:var(--accent);color:#fff;border:none;padding:0.5rem 1.25rem;border-radius:6px;cursor:pointer;font-size:0.9rem;">Run backfill</button>
+          <span id="backfill-dc-status" style="font-size:0.85rem;color:var(--text-muted);"></span>
+        </div>
+        <div id="backfill-dc-bar" style="display:none;margin-top:0.75rem;">
+          <div style="height:4px;background:var(--border);border-radius:2px;overflow:hidden;margin-bottom:0.4rem;">
+            <div id="backfill-dc-fill" style="height:100%;background:var(--accent);width:0%;transition:width 0.3s;"></div>
+          </div>
+          <span id="backfill-dc-detail" style="font-size:0.8rem;color:var(--text-muted);"></span>
+        </div>
+      </div>
+
       <div class="card">
         <h2>Events</h2>
         <input type="text" id="event-search" placeholder="Search events by name..." style="width:100%;max-width:400px;padding:0.6rem 0.8rem;margin-bottom:1rem;font-size:0.95rem;background:var(--bg);border:1px solid var(--border);border-radius:6px;color:var(--text);">
@@ -966,6 +981,66 @@
     }
 
     document.getElementById('open-question-mappings')?.addEventListener('click', () => showScreen('question-mappings'));
+
+    // ── Discount-code backfill ──────────────────────────────────────────────
+    (function () {
+      const btn = document.getElementById('backfill-dc-btn');
+      const statusEl = document.getElementById('backfill-dc-status');
+      const barEl = document.getElementById('backfill-dc-bar');
+      const fillEl = document.getElementById('backfill-dc-fill');
+      const detailEl = document.getElementById('backfill-dc-detail');
+      let pollTimer = null;
+
+      function updateUI(state) {
+        statusEl.textContent = state.message || '';
+        if (state.total > 0) {
+          barEl.style.display = 'block';
+          const pct = Math.round((state.processed / state.total) * 100);
+          fillEl.style.width = pct + '%';
+          detailEl.textContent = `${state.processed} / ${state.total} processed — ${state.updated} updated, ${state.skipped} skipped, ${state.errors} errors`;
+        }
+        if (state.running) {
+          btn.disabled = true;
+          btn.textContent = 'Running…';
+        } else {
+          btn.disabled = false;
+          btn.textContent = 'Run backfill';
+          if (pollTimer) { clearInterval(pollTimer); pollTimer = null; }
+        }
+      }
+
+      async function pollStatus() {
+        try {
+          const r = await fetch('/api/backfill/discount-codes');
+          if (r.ok) updateUI(await r.json());
+        } catch (_) {}
+      }
+
+      btn.addEventListener('click', async () => {
+        if (!confirm('This will fetch Cvent order data for every HubSpot attendee that is missing a discount code and write it back to HubSpot.\n\nThis may take several minutes. Continue?')) return;
+        btn.disabled = true;
+        btn.textContent = 'Starting…';
+        statusEl.textContent = '';
+        barEl.style.display = 'none';
+        try {
+          const r = await fetch('/api/backfill/discount-codes', { method: 'POST' });
+          const j = await r.json();
+          if (!r.ok) { alert('Error: ' + (j.error || r.status)); btn.disabled = false; btn.textContent = 'Run backfill'; return; }
+          pollTimer = setInterval(pollStatus, 2000);
+          pollStatus();
+        } catch (e) {
+          alert('Error: ' + e.message);
+          btn.disabled = false;
+          btn.textContent = 'Run backfill';
+        }
+      });
+
+      // Resume polling if a backfill is already running when page loads
+      fetch('/api/backfill/discount-codes').then(r => r.json()).then(state => {
+        if (state.running) { updateUI(state); pollTimer = setInterval(pollStatus, 2000); }
+        else if (state.finished) updateUI(state);
+      }).catch(() => {});
+    })();
 
     fetchJson('/api/events')
       .then(async ({ ok, data }) => {

@@ -810,6 +810,158 @@ def _start_scheduler_thread() -> None:
     app.logger.info("Scheduled sync background thread started.")
 
 
+# ── Discount-code backfill ──────────────────────────────────────────────────
+_backfill_state_lock = threading.Lock()
+_backfill_state = {
+    "running": False,
+    "total": 0,
+    "processed": 0,
+    "updated": 0,
+    "skipped": 0,
+    "errors": 0,
+    "finished": False,
+    "message": "",
+}
+
+
+def _backfill_discount_codes_job() -> None:
+    """
+    Background job: page through every HubSpot attendee that has cvent_reg_status set
+    but no cvent_discount_code, look the attendee up in Cvent to fetch their order's
+    discount codes, and write cvent_discount_code back to HubSpot.
+    """
+    global _backfill_state
+    def _upd(**kw):
+        with _backfill_state_lock:
+            _backfill_state.update(kw)
+
+    _upd(running=True, total=0, processed=0, updated=0, skipped=0, errors=0, finished=False, message="Fetching attendees from HubSpot…")
+    try:
+        cvent_token = fetch_cvent_token()
+    except Exception as e:
+        _upd(running=False, finished=True, message=f"Failed to get Cvent token: {e}")
+        return
+
+    # 1. Page through HubSpot attendees that have cvent_reg_status but no cvent_discount_code
+    all_hs = []
+    after = None
+    while True:
+        body = {
+            "filterGroups": [{"filters": [
+                {"propertyName": "cvent_reg_status", "operator": "HAS_PROPERTY"},
+                {"propertyName": "cvent_discount_code", "operator": "NOT_HAS_PROPERTY"},
+            ]}],
+            "properties": ["cvent_attendee_id", "cvent_discount_code"],
+            "limit": 100,
+        }
+        if after:
+            body["after"] = after
+        try:
+            r = requests.post(
+                f"https://api.hubapi.com/crm/v3/objects/{HUBSPOT_ATTENDEE_OBJECT}/search",
+                headers={"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"},
+                json=body,
+                timeout=30,
+            )
+            if not r.ok:
+                _upd(running=False, finished=True, message=f"HubSpot search failed: {r.status_code} {r.text[:200]}")
+                return
+            data = r.json()
+        except Exception as e:
+            _upd(running=False, finished=True, message=f"HubSpot search error: {e}")
+            return
+        results = data.get("results") or []
+        all_hs.extend(results)
+        paging = data.get("paging") or {}
+        after = (paging.get("next") or {}).get("after")
+        if not after:
+            break
+
+    _upd(total=len(all_hs), message=f"Found {len(all_hs)} attendees to backfill…")
+
+    # 2. Get cvent_event_id for each attendee from sync_audit_logs
+    attendee_event_map = {}
+    if DATABASE_URL:
+        all_aids = [a.get("properties", {}).get("cvent_attendee_id", "") for a in all_hs]
+        all_aids = [x for x in all_aids if x]
+        if all_aids:
+            try:
+                import psycopg2
+                with psycopg2.connect(DATABASE_URL) as conn:
+                    with conn.cursor() as cur:
+                        cur.execute(
+                            """
+                            SELECT DISTINCT ON (cvent_attendee_id) cvent_attendee_id, cvent_event_id
+                            FROM sync_audit_logs
+                            WHERE cvent_attendee_id = ANY(%s) AND mode='live'
+                            ORDER BY cvent_attendee_id, id DESC
+                            """,
+                            (all_aids,),
+                        )
+                        for row in cur.fetchall():
+                            if row[0] and row[1]:
+                                attendee_event_map[str(row[0])] = str(row[1])
+            except Exception as e:
+                app.logger.warning("Backfill: sync_audit_logs lookup failed: %s", e)
+
+    # 3. For each attendee, fetch Cvent order and update HubSpot
+    for a in all_hs:
+        props = a.get("properties") or {}
+        cvent_aid = (props.get("cvent_attendee_id") or "").strip()
+        hs_id = str(a.get("id") or "")
+
+        with _backfill_state_lock:
+            _backfill_state["processed"] += 1
+            _backfill_state["message"] = f"Processing {_backfill_state['processed']}/{_backfill_state['total']}…"
+
+        if not cvent_aid or not hs_id:
+            with _backfill_state_lock:
+                _backfill_state["skipped"] += 1
+            continue
+
+        event_id = attendee_event_map.get(cvent_aid)
+        if not event_id:
+            with _backfill_state_lock:
+                _backfill_state["skipped"] += 1
+            continue
+
+        try:
+            order = fetch_order_data(event_id, cvent_aid)
+            codes = order.get("discount_codes") or []
+            code_str = "; ".join(dc.get("code", "") for dc in codes if dc.get("code")).strip()
+            if not code_str:
+                with _backfill_state_lock:
+                    _backfill_state["skipped"] += 1
+                continue
+            patch_r = requests.patch(
+                f"https://api.hubapi.com/crm/v3/objects/{HUBSPOT_ATTENDEE_OBJECT}/{hs_id}",
+                headers={"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"},
+                json={"properties": {"cvent_discount_code": code_str}},
+                timeout=15,
+            )
+            if patch_r.ok:
+                with _backfill_state_lock:
+                    _backfill_state["updated"] += 1
+            else:
+                with _backfill_state_lock:
+                    _backfill_state["errors"] += 1
+                app.logger.warning("Backfill: HubSpot patch failed for %s: %s", hs_id, patch_r.text[:200])
+        except Exception as e:
+            with _backfill_state_lock:
+                _backfill_state["errors"] += 1
+            app.logger.warning("Backfill: error for attendee %s: %s", cvent_aid, e)
+
+        time.sleep(0.5)
+
+    with _backfill_state_lock:
+        s = _backfill_state
+        _backfill_state["running"] = False
+        _backfill_state["finished"] = True
+        _backfill_state["message"] = (
+            f"Done — {s['updated']} updated, {s['skipped']} skipped, {s['errors']} errors."
+        )
+
+
 def _question_mappings_get(event_id: str = None) -> list:
     """Return all mappings, optionally filtered to a specific event."""
     if DATABASE_URL:
@@ -1234,6 +1386,22 @@ def api_attendee_clear_sync_status(cvent_event_id, cvent_attendee_id):
         except Exception as e:
             app.logger.warning("api_attendee_clear_sync_status: failed to clear HubSpot last_cvent_sync: %s", e)
     return jsonify({"ok": True, "deleted": deleted})
+
+
+@app.route("/api/backfill/discount-codes", methods=["GET"])
+def api_backfill_discount_codes_status():
+    with _backfill_state_lock:
+        return jsonify(dict(_backfill_state))
+
+
+@app.route("/api/backfill/discount-codes", methods=["POST"])
+def api_backfill_discount_codes_start():
+    with _backfill_state_lock:
+        if _backfill_state["running"]:
+            return jsonify({"error": "Backfill is already running"}), 409
+    t = threading.Thread(target=_backfill_discount_codes_job, daemon=True, name="discount-code-backfill")
+    t.start()
+    return jsonify({"ok": True, "message": "Backfill started"})
 
 
 @app.route("/api/scheduled-syncs")

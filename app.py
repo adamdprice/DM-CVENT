@@ -125,6 +125,15 @@ _question_mappings_mem: dict = {}  # fallback when no DATABASE_URL: (event_id, q
 _cvent_token_lock = threading.Lock()
 _cvent_token_cache: dict = {"token": None, "expires_at": 0.0}
 
+# Internal key used by the background scheduler to bypass auth when calling sync endpoints
+_SCHEDULER_KEY = hashlib.sha256(
+    (os.getenv("SESSION_SECRET", "dm-cvent") + "-sched-v1").encode()
+).hexdigest()
+
+SCHEDULED_SYNC_INTERVAL_SECONDS = 30 * 60  # 30 minutes
+_scheduler_started = False
+_scheduler_lock = threading.Lock()
+
 
 def _session_serializer():
     if not SESSION_SECRET:
@@ -477,6 +486,300 @@ def _qm_ensure_table(cur) -> None:
     )
 
 
+def _ss_ensure_table(cur) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS scheduled_syncs (
+            event_id TEXT PRIMARY KEY,
+            event_name TEXT NOT NULL DEFAULT '',
+            enabled BOOLEAN NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_run_at TIMESTAMPTZ,
+            is_running BOOLEAN NOT NULL DEFAULT FALSE,
+            claimed_at TIMESTAMPTZ,
+            last_run_synced INTEGER NOT NULL DEFAULT 0,
+            last_run_skipped INTEGER NOT NULL DEFAULT 0,
+            last_run_errors INTEGER NOT NULL DEFAULT 0
+        )
+        """
+    )
+
+
+def _ss_get(event_id: str) -> dict:
+    eid = str(event_id or "").strip()
+    if not eid:
+        return {}
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    _ss_ensure_table(cur)
+                    cur.execute(
+                        "SELECT event_id, event_name, enabled, last_run_at, is_running, last_run_synced, last_run_skipped, last_run_errors FROM scheduled_syncs WHERE event_id=%s",
+                        (eid,),
+                    )
+                    r = cur.fetchone()
+                    if not r:
+                        return {}
+                    return {
+                        "event_id": r[0], "event_name": r[1], "enabled": r[2],
+                        "last_run_at": r[3].isoformat() if r[3] else None,
+                        "is_running": r[4], "last_run_synced": r[5],
+                        "last_run_skipped": r[6], "last_run_errors": r[7],
+                    }
+        except Exception as e:
+            app.logger.warning("_ss_get failed: %s", e)
+    return {}
+
+
+def _ss_get_all() -> list:
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    _ss_ensure_table(cur)
+                    cur.execute(
+                        "SELECT event_id, event_name, enabled, last_run_at, is_running, last_run_synced, last_run_skipped, last_run_errors FROM scheduled_syncs ORDER BY created_at"
+                    )
+                    rows = cur.fetchall()
+            return [
+                {
+                    "event_id": r[0], "event_name": r[1], "enabled": r[2],
+                    "last_run_at": r[3].isoformat() if r[3] else None,
+                    "is_running": r[4], "last_run_synced": r[5],
+                    "last_run_skipped": r[6], "last_run_errors": r[7],
+                }
+                for r in rows
+            ]
+        except Exception as e:
+            app.logger.warning("_ss_get_all failed: %s", e)
+    return []
+
+
+def _ss_upsert(event_id: str, event_name: str, enabled: bool) -> None:
+    eid = str(event_id or "").strip()
+    if not eid:
+        return
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    _ss_ensure_table(cur)
+                    cur.execute(
+                        """
+                        INSERT INTO scheduled_syncs (event_id, event_name, enabled)
+                        VALUES (%s, %s, %s)
+                        ON CONFLICT (event_id) DO UPDATE SET enabled=EXCLUDED.enabled, event_name=EXCLUDED.event_name
+                        """,
+                        (eid, str(event_name or ""), bool(enabled)),
+                    )
+        except Exception as e:
+            app.logger.warning("_ss_upsert failed: %s", e)
+
+
+def _ss_claim(event_id: str) -> bool:
+    """Atomically claim a scheduled sync job. Returns True if this worker got the claim."""
+    eid = str(event_id or "").strip()
+    if not eid or not DATABASE_URL:
+        return False
+    try:
+        import psycopg2
+        with psycopg2.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                # First reset any stuck jobs older than 2 hours
+                cur.execute(
+                    "UPDATE scheduled_syncs SET is_running=FALSE WHERE is_running=TRUE AND claimed_at < NOW() - INTERVAL '2 hours'"
+                )
+                cur.execute(
+                    """
+                    UPDATE scheduled_syncs SET is_running=TRUE, claimed_at=NOW()
+                    WHERE event_id=%s AND enabled=TRUE AND NOT is_running
+                      AND (last_run_at IS NULL OR last_run_at < NOW() - INTERVAL '30 minutes')
+                    RETURNING event_id
+                    """,
+                    (eid,),
+                )
+                return cur.fetchone() is not None
+    except Exception as e:
+        app.logger.warning("_ss_claim failed: %s", e)
+        return False
+
+
+def _ss_release(event_id: str, synced: int, skipped: int, errors: int) -> None:
+    eid = str(event_id or "").strip()
+    if not eid or not DATABASE_URL:
+        return
+    try:
+        import psycopg2
+        with psycopg2.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    "UPDATE scheduled_syncs SET is_running=FALSE, last_run_at=NOW(), last_run_synced=%s, last_run_skipped=%s, last_run_errors=%s WHERE event_id=%s",
+                    (synced, skipped, errors, eid),
+                )
+    except Exception as e:
+        app.logger.warning("_ss_release failed: %s", e)
+
+
+def _get_last_successful_sync_times(event_id: str) -> dict:
+    """Returns {cvent_attendee_id: datetime} for the latest successful live sync per attendee."""
+    eid = str(event_id or "").strip()
+    if not eid or not DATABASE_URL:
+        return {}
+    try:
+        import psycopg2
+        with psycopg2.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                cur.execute(
+                    """
+                    SELECT DISTINCT ON (cvent_attendee_id) cvent_attendee_id, created_at
+                    FROM sync_audit_logs
+                    WHERE cvent_event_id=%s AND mode='live' AND status IN ('success','partial')
+                    ORDER BY cvent_attendee_id, id DESC
+                    """,
+                    (eid,),
+                )
+                rows = cur.fetchall()
+        return {str(r[0]): r[1] for r in rows if r[0] and r[1]}
+    except Exception as e:
+        app.logger.warning("_get_last_successful_sync_times failed: %s", e)
+        return {}
+
+
+def _fetch_cvent_attendees_basic(event_id: str) -> list:
+    """Fetch all attendees for an event from Cvent (id + lastModified only)."""
+    try:
+        token = fetch_cvent_token()
+        import urllib.parse
+        api_base = f"{CV_API_BASE.rstrip('/')}/ea"
+        headers = {"Accept": "application/json", "Authorization": f"Bearer {token}"}
+        filter_expr = urllib.parse.quote(f"event.id eq '{event_id}'")
+        all_attendees = []
+        url = f"{api_base}/attendees?limit=100&filter={filter_expr}"
+        for _ in range(200):
+            r = requests.get(url, headers=headers, timeout=30)
+            if not r.ok:
+                break
+            j = r.json() if r.text else {}
+            data = j.get("data", []) if isinstance(j.get("data"), list) else []
+            all_attendees.extend(data)
+            paging = j.get("paging") or {}
+            next_info = (paging.get("_links") or {}).get("next")
+            next_link = next_info.get("href") if isinstance(next_info, dict) else (next_info if isinstance(next_info, str) else None)
+            if not next_link:
+                break
+            url = next_link
+        return all_attendees
+    except Exception as e:
+        app.logger.warning("_fetch_cvent_attendees_basic failed for %s: %s", event_id, e)
+        return []
+
+
+def _run_event_scheduled_sync(event_id: str, event_name: str) -> tuple:
+    """Run a scheduled sync for one event. Returns (synced, skipped, errors)."""
+    from datetime import datetime, timezone
+    port = int(os.getenv("PORT", "8080"))
+    attendees = _fetch_cvent_attendees_basic(event_id)
+    last_syncs = _get_last_successful_sync_times(event_id)
+    synced = skipped = errors = 0
+    for a in attendees:
+        aid = str(a.get("id") or "").strip()
+        if not aid:
+            continue
+        last_modified_str = (a.get("lastModified") or a.get("attendeeLastModified") or "").strip()
+        last_sync_dt = last_syncs.get(aid)
+        if last_sync_dt and last_modified_str:
+            try:
+                last_mod = datetime.fromisoformat(last_modified_str.replace("Z", "+00:00"))
+                if last_sync_dt.tzinfo is None:
+                    last_sync_dt = last_sync_dt.replace(tzinfo=timezone.utc)
+                if last_mod <= last_sync_dt:
+                    skipped += 1
+                    continue
+            except Exception:
+                pass
+        try:
+            resp = requests.post(
+                f"http://127.0.0.1:{port}/api/hubspot/sync-attendee",
+                json={"cvent_attendee_id": aid, "cvent_event_id": event_id, "training": False, "quantity_item_product_mappings": {}},
+                headers={"X-Scheduler-Key": _SCHEDULER_KEY},
+                timeout=120,
+            )
+            result = resp.json() if resp.text else {}
+            if resp.ok and not (result.get("error") and not result.get("actions")):
+                synced += 1
+            else:
+                errors += 1
+        except Exception as e:
+            app.logger.warning("Scheduler sync failed for attendee %s: %s", aid, e)
+            errors += 1
+        time.sleep(0.5)
+    return synced, skipped, errors
+
+
+def _run_due_scheduled_syncs() -> None:
+    if not DATABASE_URL:
+        return
+    try:
+        import psycopg2
+        with psycopg2.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                _ss_ensure_table(cur)
+                # Reset stuck jobs
+                cur.execute(
+                    "UPDATE scheduled_syncs SET is_running=FALSE WHERE is_running=TRUE AND claimed_at < NOW() - INTERVAL '2 hours'"
+                )
+                cur.execute(
+                    """
+                    SELECT event_id, event_name FROM scheduled_syncs
+                    WHERE enabled=TRUE AND NOT is_running
+                      AND (last_run_at IS NULL OR last_run_at < NOW() - INTERVAL '30 minutes')
+                    """
+                )
+                due = cur.fetchall()
+    except Exception as e:
+        app.logger.warning("_run_due_scheduled_syncs query failed: %s", e)
+        return
+    for event_id, event_name in due:
+        if not _ss_claim(event_id):
+            continue
+        app.logger.info("Scheduler: starting sync for event %s (%s)", event_id, event_name)
+        try:
+            synced, skipped, errors = _run_event_scheduled_sync(event_id, event_name or event_id)
+            app.logger.info("Scheduler: event %s done — synced=%d skipped=%d errors=%d", event_id, synced, skipped, errors)
+        except Exception as e:
+            app.logger.warning("Scheduler: event %s failed: %s", event_id, e)
+            synced = skipped = 0
+            errors = 1
+        finally:
+            _ss_release(event_id, synced, skipped, errors)
+
+
+def _start_scheduler_thread() -> None:
+    global _scheduler_started
+    with _scheduler_lock:
+        if _scheduler_started:
+            return
+        _scheduler_started = True
+
+    def _worker():
+        # Stagger startup so multiple Gunicorn workers don't all fire at once
+        time.sleep(30)
+        while True:
+            try:
+                _run_due_scheduled_syncs()
+            except Exception as e:
+                app.logger.warning("Scheduler thread error: %s", e)
+            time.sleep(120)  # poll every 2 minutes
+
+    t = threading.Thread(target=_worker, daemon=True, name="scheduled-sync-worker")
+    t.start()
+    app.logger.info("Scheduled sync background thread started.")
+
+
 def _question_mappings_get(event_id: str = None) -> list:
     """Return all mappings, optionally filtered to a specific event."""
     if DATABASE_URL:
@@ -642,6 +945,8 @@ def _require_auth():
     if path.startswith("/static/"):
         return None
     if _verify_session_cookie():
+        return None
+    if request.headers.get("X-Scheduler-Key") == _SCHEDULER_KEY:
         return None
     if path == "/" or path == "/events":
         return redirect("/login")
@@ -856,6 +1161,30 @@ def api_event_clear_sync_statuses(cvent_event_id):
             _sync_logs[:] = [x for x in _sync_logs if str(x.get("cvent_event_id") or "") != eid]
             deleted = before - len(_sync_logs)
     return jsonify({"ok": True, "deleted": deleted})
+
+
+@app.route("/api/scheduled-syncs")
+def api_get_scheduled_syncs():
+    return jsonify({"syncs": _ss_get_all()})
+
+
+@app.route("/api/events/<cvent_event_id>/scheduled-sync", methods=["GET"])
+def api_get_event_scheduled_sync(cvent_event_id):
+    return jsonify(_ss_get(cvent_event_id) or {"event_id": cvent_event_id, "enabled": False})
+
+
+@app.route("/api/events/<cvent_event_id>/scheduled-sync", methods=["POST"])
+def api_set_event_scheduled_sync(cvent_event_id):
+    eid = str(cvent_event_id or "").strip()
+    if not eid:
+        return jsonify({"error": "event_id required"}), 400
+    body = request.get_json() or {}
+    enabled = bool(body.get("enabled", False))
+    event_name = str(body.get("event_name") or "").strip()
+    _ss_upsert(eid, event_name, enabled)
+    if enabled:
+        _start_scheduler_thread()
+    return jsonify({"ok": True, "enabled": enabled})
 
 
 def _get_speaker_event_answer(attendee: dict) -> str:
@@ -5073,6 +5402,9 @@ def lookup():
         "hubspot_attendee": hubspot_attendee,
     })
 
+
+# Start the background scheduler thread when loaded by Gunicorn or directly
+_start_scheduler_thread()
 
 if __name__ == "__main__":
     port = int(os.getenv("PORT", "5001"))

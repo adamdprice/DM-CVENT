@@ -849,9 +849,9 @@ def _backfill_discount_codes_job() -> None:
         body = {
             "filterGroups": [{"filters": [
                 {"propertyName": "cvent_reg_status", "operator": "HAS_PROPERTY"},
-                {"propertyName": "cvent_discount_code", "operator": "NOT_HAS_PROPERTY"},
+                {"propertyName": "discount_code", "operator": "NOT_HAS_PROPERTY"},
             ]}],
-            "properties": ["cvent_attendee_id", "cvent_discount_code"],
+            "properties": ["cvent_attendee_id", "discount_code"],
             "limit": 100,
         }
         if after:
@@ -936,7 +936,7 @@ def _backfill_discount_codes_job() -> None:
             patch_r = requests.patch(
                 f"https://api.hubapi.com/crm/v3/objects/{HUBSPOT_ATTENDEE_OBJECT}/{hs_id}",
                 headers={"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"},
-                json={"properties": {"cvent_discount_code": code_str}},
+                json={"properties": {"discount_code": code_str}},
                 timeout=15,
             )
             if patch_r.ok:
@@ -4566,7 +4566,7 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
         "cvent_amount_due": cvent_amount_due,
         "cvent_amount_excl_vattax": cvent_amount_excl_vattax,
         "cvent_attendee_id": cvent_id,
-        "cvent_discount_code": cvent_discount_code,
+        "discount_code": cvent_discount_code,
         "last_cvent_sync": now_ms,
         "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
         "cvent_confirmation_number": (attendee.get("confirmation_number") or "").strip(),

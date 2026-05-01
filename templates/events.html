@@ -1113,26 +1113,19 @@
           const savedCurrency = (savedCurrencyRes.data && savedCurrencyRes.data.currency) || '';
           let html = '';
 
-          // Currency card — always shown; dropdown if HubSpot returns currencies, text input otherwise
+          // Currency card — always shown; dropdown populated from HubSpot portal currencies
           {
-            let currencyInput;
-            if (availableCurrencies.length > 0) {
-              const opts = availableCurrencies.map(c =>
-                `<option value="${escapeHtml(c)}" ${c === savedCurrency ? 'selected' : ''}>${escapeHtml(c)}</option>`
-              ).join('');
-              currencyInput = `<select id="currency-select" style="padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;background:var(--bg);color:var(--text);">
-                <option value="">— No currency set —</option>
-                ${opts}
-              </select>`;
-            } else {
-              currencyInput = `<input id="currency-select" type="text" maxlength="3" placeholder="e.g. GBP" value="${escapeHtml(savedCurrency)}"
-                style="padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;background:var(--bg);color:var(--text);width:90px;text-transform:uppercase;" />`;
-            }
+            const opts = availableCurrencies.map(c =>
+              `<option value="${escapeHtml(c.code)}" ${c.code === savedCurrency ? 'selected' : ''}>${escapeHtml(c.code)} — ${escapeHtml(c.label)}</option>`
+            ).join('');
             html += `<div class="section-card" id="currency-card">
               <h3>Deal currency</h3>
               <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Currency applied to all deals created for this event.</p>
               <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
-                ${currencyInput}
+                <select id="currency-select" style="padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;background:var(--bg);color:var(--text);">
+                  <option value="">— No currency set —</option>
+                  ${opts}
+                </select>
                 <button type="button" id="currency-save-btn" class="map-btn" style="padding:0.4rem 0.9rem;font-size:0.85rem;">Save</button>
                 <span id="currency-save-status" style="font-size:0.8rem;color:var(--text-muted);"></span>
               </div>

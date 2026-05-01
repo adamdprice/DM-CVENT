@@ -1097,7 +1097,9 @@
         fetchJson(`/api/events/${encodeURIComponent(eventId)}/attendees`),
         loadHubspotEvents(),
         loadQuestionMappingsCache(),
-      ]).then(([{ ok, data }, _1, _2]) => {
+        fetchJson(`/api/hubspot/currencies`),
+        fetchJson(`/api/events/${encodeURIComponent(eventId)}/currency`),
+      ]).then(([{ ok, data }, _1, _2, currenciesRes, savedCurrencyRes]) => {
           if (data.error) {
             setupContent.innerHTML = `<div class="error-msg">${escapeHtml(data.error)}</div>`;
             return;
@@ -1107,7 +1109,28 @@
           const regQuestions = data.registration_questions || [];
           const registrationTypes = data.registration_types || [];
           const registrationPaths = data.registration_paths || [];
+          const availableCurrencies = (currenciesRes.data && currenciesRes.data.currencies) || [];
+          const savedCurrency = (savedCurrencyRes.data && savedCurrencyRes.data.currency) || '';
           let html = '';
+
+          // Currency card
+          if (availableCurrencies.length > 0) {
+            const opts = availableCurrencies.map(c =>
+              `<option value="${escapeHtml(c)}" ${c === savedCurrency ? 'selected' : ''}>${escapeHtml(c)}</option>`
+            ).join('');
+            html += `<div class="section-card" id="currency-card">
+              <h3>Deal currency</h3>
+              <p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Currency applied to all deals created for this event.</p>
+              <div style="display:flex;align-items:center;gap:0.75rem;flex-wrap:wrap;">
+                <select id="currency-select" style="padding:0.4rem 0.6rem;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;background:var(--bg);color:var(--text);">
+                  <option value="">— No currency set —</option>
+                  ${opts}
+                </select>
+                <button type="button" id="currency-save-btn" class="map-btn" style="padding:0.4rem 0.9rem;font-size:0.85rem;">Save</button>
+                <span id="currency-save-status" style="font-size:0.8rem;color:var(--text-muted);"></span>
+              </div>
+            </div>`;
+          }
 
           if (registrationTypes.length > 0) {
             html += '<div class="section-card"><h3>Registration types</h3>';
@@ -1199,6 +1222,31 @@
               openEventDropdown(btn, { id: btn.dataset.aiId, name: btn.dataset.aiName, code: btn.dataset.aiCode });
             });
           });
+
+          const currencySaveBtn = document.getElementById('currency-save-btn');
+          if (currencySaveBtn) {
+            currencySaveBtn.addEventListener('click', async () => {
+              const sel = document.getElementById('currency-select');
+              const statusEl = document.getElementById('currency-save-status');
+              const chosen = sel ? sel.value : '';
+              currencySaveBtn.disabled = true;
+              if (statusEl) statusEl.textContent = 'Saving…';
+              try {
+                const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/currency`, {
+                  method: 'POST',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ currency: chosen }),
+                });
+                const json = await res.json();
+                if (statusEl) statusEl.textContent = json.ok ? 'Saved!' : ('Error: ' + (json.error || 'unknown'));
+              } catch (e) {
+                if (statusEl) statusEl.textContent = 'Error: ' + e.message;
+              } finally {
+                currencySaveBtn.disabled = false;
+                setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 3000);
+              }
+            });
+          }
         })
         .catch(err => {
           setupContent.innerHTML = `<div class="error-msg">${escapeHtml(err.message)}</div>`;

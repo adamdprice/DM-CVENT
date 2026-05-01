@@ -499,9 +499,13 @@ def _ss_ensure_table(cur) -> None:
             claimed_at TIMESTAMPTZ,
             last_run_synced INTEGER NOT NULL DEFAULT 0,
             last_run_skipped INTEGER NOT NULL DEFAULT 0,
-            last_run_errors INTEGER NOT NULL DEFAULT 0
+            last_run_errors INTEGER NOT NULL DEFAULT 0,
+            currency TEXT NOT NULL DEFAULT ''
         )
         """
+    )
+    cur.execute(
+        "ALTER TABLE scheduled_syncs ADD COLUMN IF NOT EXISTS currency TEXT NOT NULL DEFAULT ''"
     )
 
 
@@ -578,6 +582,48 @@ def _ss_upsert(event_id: str, event_name: str, enabled: bool) -> None:
                     )
         except Exception as e:
             app.logger.warning("_ss_upsert failed: %s", e)
+
+
+def _ss_get_currency(event_id: str) -> str:
+    """Return the saved currency code for an event, or '' if not set."""
+    eid = str(event_id or "").strip()
+    if not eid or not DATABASE_URL:
+        return ""
+    try:
+        import psycopg2
+        with psycopg2.connect(DATABASE_URL) as conn:
+            with conn.cursor() as cur:
+                _ss_ensure_table(cur)
+                cur.execute("SELECT currency FROM scheduled_syncs WHERE event_id=%s", (eid,))
+                row = cur.fetchone()
+                return (row[0] or "") if row else ""
+    except Exception as e:
+        app.logger.warning("_ss_get_currency failed: %s", e)
+    return ""
+
+
+def _ss_set_currency(event_id: str, currency: str) -> None:
+    """Save the currency code for an event (upserts the row)."""
+    eid = str(event_id or "").strip()
+    currency = str(currency or "").strip().upper()
+    if not eid:
+        return
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    _ss_ensure_table(cur)
+                    cur.execute(
+                        """
+                        INSERT INTO scheduled_syncs (event_id, currency)
+                        VALUES (%s, %s)
+                        ON CONFLICT (event_id) DO UPDATE SET currency=EXCLUDED.currency
+                        """,
+                        (eid, currency),
+                    )
+        except Exception as e:
+            app.logger.warning("_ss_set_currency failed: %s", e)
 
 
 def _ss_claim(event_id: str) -> bool:
@@ -1428,6 +1474,45 @@ def api_set_event_scheduled_sync(cvent_event_id):
     return jsonify({"ok": True, "enabled": enabled})
 
 
+@app.route("/api/events/<cvent_event_id>/currency", methods=["GET"])
+def api_get_event_currency(cvent_event_id):
+    return jsonify({"currency": _ss_get_currency(cvent_event_id)})
+
+
+@app.route("/api/events/<cvent_event_id>/currency", methods=["POST"])
+def api_set_event_currency(cvent_event_id):
+    eid = str(cvent_event_id or "").strip()
+    if not eid:
+        return jsonify({"error": "event_id required"}), 400
+    body = request.get_json() or {}
+    currency = str(body.get("currency") or "").strip().upper()
+    _ss_set_currency(eid, currency)
+    return jsonify({"ok": True, "currency": currency})
+
+
+@app.route("/api/hubspot/currencies")
+def api_hubspot_currencies():
+    """Return the list of currencies configured in HubSpot for this account."""
+    if not HUBSPOT_TOKEN:
+        return jsonify({"error": "HubSpot token not configured"}), 500
+    try:
+        r = requests.get(
+            "https://api.hubapi.com/settings/v3/currencies",
+            headers={"Authorization": f"Bearer {HUBSPOT_TOKEN}"},
+            timeout=10,
+        )
+        if not r.ok:
+            return jsonify({"error": f"HubSpot error {r.status_code}"}), 502
+        data = r.json()
+        account_currency = data.get("accountCurrencyCode") or ""
+        extras = [c.get("fromCurrencyCode") for c in (data.get("currencies") or []) if c.get("fromCurrencyCode")]
+        all_currencies = list(dict.fromkeys(filter(None, [account_currency] + extras)))
+        return jsonify({"account_currency": account_currency, "currencies": all_currencies})
+    except Exception as e:
+        app.logger.warning("api_hubspot_currencies failed: %s", e)
+        return jsonify({"error": str(e)}), 500
+
+
 def _get_speaker_event_answer(attendee: dict) -> str:
     """
     Get answer to "Which event are you participating as a speaker?".
@@ -1460,6 +1545,7 @@ def _build_deal_plan(
     sponsor_associations: list = None,
     training: bool = False,
     quantity_item_product_mappings: dict = None,
+    currency: str = "",
 ) -> dict:
     """
     Determine if deal(s) would be created and build plan (1 deal per event, revenue split when multiple).
@@ -1520,9 +1606,8 @@ def _build_deal_plan(
     reference_id = (attendee.get("reference_id") or "").strip()
     ref_no_delsale = "delsale" not in reference_id.lower()
 
-    # delsale attendees still get a deal, just in a different pipeline stage
     all_met = is_accepted and has_positive_amount
-    deal_stage = HUBSPOT_DELSALE_STAGE if not ref_no_delsale else HUBSPOT_DEAL_STAGE
+    deal_stage = HUBSPOT_DELSALE_STAGE
     first = (attendee.get("first_name") or "").strip()
     last = (attendee.get("last_name") or "").strip()
     full_name = f"{first} {last}".strip() or "Unknown Attendee"
@@ -1566,6 +1651,7 @@ def _build_deal_plan(
                     "cvent_reference_id": reference_id,
                     "cvent_testing": "yes",
                     "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
+                    "deal_currency_code": currency,
                 }
                 if half is not None:
                     props["amount"] = half
@@ -1669,6 +1755,7 @@ def _build_deal_plan(
                 "cvent_reference_id": reference_id,
                 "cvent_testing": "yes",
                 "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
+                "deal_currency_code": currency,
             }
             if amt is not None:
                 props["amount"] = amt
@@ -1779,6 +1866,7 @@ def _build_deal_plan(
                     "cvent_reference_id": reference_id,
                     "cvent_testing": "yes",
                     "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
+                    "deal_currency_code": currency,
                 }
                 if amt is not None:
                     props["amount"] = amt
@@ -1812,6 +1900,7 @@ def _build_deal_plan(
                     "cvent_reference_id": reference_id,
                     "cvent_testing": "yes",
                     "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
+                    "deal_currency_code": currency,
                 }
                 if amount_each is not None:
                     props["amount"] = round(amount_each, 2)
@@ -1915,6 +2004,7 @@ def _build_deal_plan(
                     "cvent_testing": "yes",
                     "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
                     "cvent_tax_amount": qi_tax,
+                    "deal_currency_code": currency,
                 }
                 if qi_net > 0:
                     props["amount"] = round(qi_net, 2)
@@ -4976,6 +5066,7 @@ def hubspot_sync_attendee():
     first_name = (attendee.get("first_name") or "").strip()
     last_name = (attendee.get("last_name") or "").strip()
     event_question_mappings = _question_mappings_get(cvent_event_id)
+    event_currency = _ss_get_currency(cvent_event_id)
     attendee_properties_full = _build_attendee_properties(attendee, order, question_mappings=event_question_mappings)
 
     admission_item_id = (attendee.get("admission_item_id") or "").strip()
@@ -5092,6 +5183,7 @@ def hubspot_sync_attendee():
             sponsor_associations=sponsor_associations,
             training=True,
             quantity_item_product_mappings=quantity_item_product_mappings,
+            currency=event_currency,
         )
         speaker_labels = deal_result.get("speaker_upgrade_event_labels")
         if speaker_labels:
@@ -5316,6 +5408,7 @@ def hubspot_sync_attendee():
                 sponsor_associations=sponsor_associations_step,
                 training=True,
                 quantity_item_product_mappings=quantity_item_product_mappings,
+                currency=event_currency,
             )
             speaker_labels_k = deal_result_k.get("speaker_upgrade_event_labels")
             if speaker_labels_k:
@@ -5618,6 +5711,7 @@ def hubspot_sync_attendee():
             sponsor_associations=sponsor_associations_step,
             training=False,
             quantity_item_product_mappings=quantity_item_product_mappings,
+            currency=event_currency,
         )
         speaker_labels_k = deal_result_k.get("speaker_upgrade_event_labels")
         if speaker_labels_k:

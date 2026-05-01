@@ -1492,26 +1492,23 @@ def api_set_event_currency(cvent_event_id):
 
 @app.route("/api/hubspot/currencies")
 def api_hubspot_currencies():
-    """Return currencies available in this HubSpot portal from deal_currency_code property options."""
+    """Return currencies configured in this HubSpot portal via account-info/v3/details."""
     if not HUBSPOT_TOKEN:
         return jsonify({"error": "HubSpot token not configured"}), 500
     try:
         r = requests.get(
-            "https://api.hubapi.com/crm/v3/properties/deals/deal_currency_code",
+            "https://api.hubapi.com/account-info/v3/details",
             headers={"Authorization": f"Bearer {HUBSPOT_TOKEN}"},
             timeout=10,
         )
         if not r.ok:
             return jsonify({"error": f"HubSpot error {r.status_code}"}), 502
         data = r.json()
-        options = data.get("options") or []
-        currencies = [
-            {"code": o["value"], "label": o.get("label") or o["value"]}
-            for o in options
-            if o.get("value") and not o.get("hidden")
-        ]
-        currencies.sort(key=lambda c: c["code"])
-        return jsonify({"currencies": currencies})
+        company_currency = data.get("companyCurrency") or ""
+        additional = data.get("additionalCurrencies") or []
+        all_codes = list(dict.fromkeys(filter(None, [company_currency] + additional)))
+        currencies = [{"code": c, "label": c} for c in sorted(all_codes)]
+        return jsonify({"currencies": currencies, "account_currency": company_currency})
     except Exception as e:
         app.logger.warning("api_hubspot_currencies failed: %s", e)
         return jsonify({"error": str(e)}), 500

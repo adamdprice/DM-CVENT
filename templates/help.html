@@ -186,7 +186,6 @@
       <li><a href="#training-vs-live">Training vs Live mode</a></li>
       <li><a href="#sync-all">Sync All</a></li>
       <li><a href="#scheduled-sync">Scheduled (auto) sync</a></li>
-      <li><a href="#backfill">Discount code backfill</a></li>
     </ul>
     <h3>HubSpot records</h3>
     <ul>
@@ -268,11 +267,7 @@
           <div class="ui-card-text">Map Cvent question codes to HubSpot Attendee properties.</div>
           <button class="ui-btn">Configure question mappings →</button>
         </div>
-        <div class="ui-card">
-          <div class="ui-card-label">Backfill discount codes</div>
-          <div class="ui-card-text">One-time sync to populate missing discount code fields.</div>
-          <button class="ui-btn primary">Run backfill</button>
-        </div>
+
         <div class="ui-card">
           <div class="ui-card-label">Events</div>
           <input class="ui-input" style="width:100%;margin-bottom:0.65rem;" placeholder="Search events by name..." readonly>
@@ -589,21 +584,6 @@
       <span class="callout-icon">💡</span>
       <div>Quantity item → HubSpot Product mappings (configured in Event Setup) only apply to manual/Sync All runs from the browser. Scheduled syncs do not apply these mappings.</div>
     </div>
-
-    <!-- ── BACKFILL ─────────────────────────────────────────────── -->
-    <h2 id="backfill">Discount code backfill</h2>
-    <p>A one-time repair tool, available from the home screen. It finds all HubSpot Attendee records that have a registration status set (i.e. were previously synced) but are missing a discount code, then fetches the discount code from Cvent and writes it back to HubSpot.</p>
-
-    <h3>When to use it</h3>
-    <p>If discount codes were not captured in earlier syncs (e.g. before the discount code feature was added), run this once to backfill all missing values. It is safe to run multiple times — it only updates records where the <code>discount_code</code> field is currently empty.</p>
-
-    <h3>How to run it</h3>
-    <ol>
-      <li>From the home screen, find the <strong>Backfill discount codes</strong> card</li>
-      <li>Click <strong>Run backfill</strong></li>
-      <li>A progress bar shows total / processed / updated / skipped / errors</li>
-      <li>The job runs in the background — you can navigate away and come back</li>
-    </ol>
 
     <!-- ── RECORDS CREATED ─────────────────────────────────────────────── -->
     <h2 id="records-created">Records created in HubSpot</h2>

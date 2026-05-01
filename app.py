@@ -2690,6 +2690,11 @@ def events_page():
     return render_template("events.html")
 
 
+@app.route("/help")
+def help_page():
+    return render_template("help.html")
+
+
 @app.route("/api/events")
 def list_events():
     """List all events from Cvent. Requires event/events:read scope."""

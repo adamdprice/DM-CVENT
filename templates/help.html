@@ -1,0 +1,795 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>User Guide — DM Cvent Integration</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    :root {
+      --bg: #f4f6f8;
+      --surface: #ffffff;
+      --border: #d9e1e8;
+      --text: #243746;
+      --text-muted: #6f7f8d;
+      --accent: #0d74d1;
+      --accent-hover: #0a5fae;
+      --success: #12a86c;
+      --error: #cf3f32;
+      --radius: 8px;
+      --sidebar-w: 260px;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); margin: 0; line-height: 1.6; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    code, .mono { font-family: 'JetBrains Mono', monospace; font-size: 0.82em; background: rgba(13,116,209,0.08); padding: 0.1em 0.35em; border-radius: 4px; }
+
+    /* Top bar */
+    .topbar {
+      height: 56px; background: #ffffff; border-bottom: 1px solid var(--border);
+      display: flex; align-items: center; justify-content: space-between;
+      padding: 0 1.25rem; position: sticky; top: 0; z-index: 30;
+    }
+    .brand { display: inline-flex; align-items: center; gap: 0.55rem; font-weight: 700; color: #003a70; letter-spacing: 0.02em; }
+    .brand-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: inline-block; }
+    .top-nav { display: inline-flex; align-items: center; gap: 1rem; font-size: 0.9rem; }
+    .top-nav a { color: var(--text-muted); }
+    .top-nav a.active { color: var(--accent); font-weight: 600; border-bottom: 2px solid #23b6b5; padding-bottom: 0.2rem; }
+
+    /* Layout */
+    .layout { display: flex; min-height: calc(100vh - 56px); }
+
+    /* Sidebar */
+    .sidebar {
+      width: var(--sidebar-w); flex-shrink: 0; background: var(--surface);
+      border-right: 1px solid var(--border); padding: 1.5rem 1rem;
+      position: sticky; top: 56px; height: calc(100vh - 56px); overflow-y: auto;
+    }
+    .sidebar h3 { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-muted); margin: 1.25rem 0 0.5rem; padding-top: 1rem; border-top: 1px solid var(--border); }
+    .sidebar h3:first-child { margin-top: 0; padding-top: 0; border-top: none; }
+    .sidebar ul { list-style: none; margin: 0; padding: 0; }
+    .sidebar ul li a { display: block; padding: 0.3rem 0.5rem; font-size: 0.88rem; color: var(--text); border-radius: 5px; }
+    .sidebar ul li a:hover { background: var(--bg); text-decoration: none; }
+    .sidebar ul li a.active { background: rgba(13,116,209,0.1); color: var(--accent); font-weight: 600; }
+
+    /* Main content */
+    .main { flex: 1; padding: 2rem 2.5rem; max-width: 900px; }
+
+    /* Headings */
+    .main h1 { font-size: 2rem; font-weight: 700; margin: 0 0 0.35rem; }
+    .main .lead { color: var(--text-muted); font-size: 1rem; margin: 0 0 2rem; }
+    .main h2 { font-size: 1.4rem; font-weight: 700; margin: 2.5rem 0 0.6rem; padding-top: 1rem; border-top: 2px solid var(--border); }
+    .main h2:first-of-type { border-top: none; margin-top: 0; }
+    .main h3 { font-size: 1.05rem; font-weight: 600; margin: 1.5rem 0 0.5rem; color: var(--text); }
+    .main h4 { font-size: 0.92rem; font-weight: 600; margin: 1.2rem 0 0.4rem; color: var(--text-muted); text-transform: uppercase; letter-spacing: 0.05em; }
+    .main p { margin: 0 0 0.85rem; }
+    .main ul, .main ol { margin: 0 0 1rem; padding-left: 1.5rem; }
+    .main ul li, .main ol li { margin-bottom: 0.3rem; }
+
+    /* Screen mockup */
+    .screen-mock {
+      background: #1b2736; border: 1px solid #2f4155; border-radius: 10px;
+      overflow: hidden; margin: 1.25rem 0; box-shadow: 0 4px 24px rgba(0,0,0,0.18);
+    }
+    .screen-mock-bar {
+      background: #0f1a26; padding: 0.55rem 0.9rem; display: flex; align-items: center; gap: 0.4rem; border-bottom: 1px solid #2f4155;
+    }
+    .screen-mock-dot { width: 10px; height: 10px; border-radius: 50%; }
+    .screen-mock-url { flex: 1; background: #1b2736; margin-left: 0.75rem; border-radius: 4px; padding: 0.2rem 0.65rem; font-size: 0.78rem; font-family: 'JetBrains Mono', monospace; color: #7b95ab; border: 1px solid #2f4155; }
+    .screen-mock-body { padding: 1.25rem; }
+
+    /* UI blocks that look like real UI elements */
+    .ui-topbar { background: #fff; border-bottom: 1px solid #d9e1e8; padding: 0.65rem 1rem; display: flex; align-items: center; justify-content: space-between; border-radius: 6px 6px 0 0; margin-bottom: 0.85rem; }
+    .ui-brand { font-weight: 700; color: #003a70; font-size: 0.9rem; display: flex; align-items: center; gap: 0.4rem; }
+    .ui-brand-dot { width: 7px; height: 7px; border-radius: 50%; background: #0d74d1; display: inline-block; }
+    .ui-card { background: #fff; border: 1px solid #d9e1e8; border-radius: 8px; padding: 0.9rem 1rem; margin-bottom: 0.6rem; }
+    .ui-card-label { font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em; color: #6f7f8d; font-weight: 600; margin-bottom: 0.35rem; }
+    .ui-card-title { font-size: 0.95rem; font-weight: 600; margin-bottom: 0.4rem; }
+    .ui-card-text { font-size: 0.82rem; color: #6f7f8d; margin-bottom: 0.5rem; }
+    .ui-btn { display: inline-flex; align-items: center; gap: 0.35rem; padding: 0.35rem 0.85rem; border-radius: 6px; font-size: 0.82rem; font-weight: 600; border: 1px solid #d9e1e8; background: #fff; color: #243746; cursor: pointer; }
+    .ui-btn.primary { background: #0d74d1; color: #fff; border-color: #0d74d1; }
+    .ui-btn.success { background: #12a86c; color: #fff; border-color: #12a86c; }
+    .ui-table { width: 100%; border-collapse: collapse; font-size: 0.82rem; }
+    .ui-table th { background: #f9fbfd; color: #556574; font-weight: 600; padding: 0.45rem 0.65rem; border-bottom: 1px solid #d9e1e8; text-align: left; }
+    .ui-table td { padding: 0.45rem 0.65rem; border-bottom: 1px solid #eef2f6; color: #243746; }
+    .ui-badge { display: inline-block; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.73rem; font-weight: 600; }
+    .ui-badge.green { background: rgba(18,168,108,0.12); color: #12a86c; }
+    .ui-badge.blue { background: rgba(13,116,209,0.12); color: #0d74d1; }
+    .ui-badge.amber { background: rgba(245,158,11,0.12); color: #d97706; }
+    .ui-badge.red { background: rgba(207,63,50,0.12); color: #cf3f32; }
+    .ui-badge.grey { background: rgba(111,127,141,0.12); color: #6f7f8d; }
+    .ui-dot { width: 10px; height: 10px; border-radius: 50%; display: inline-block; }
+    .ui-dot.green { background: #12a86c; }
+    .ui-dot.amber { background: #f59e0b; }
+    .ui-dot.red { background: #cf3f32; }
+    .ui-dot.grey { background: #6f7f8d; }
+    .ui-pill { display: inline-flex; align-items: center; gap: 5px; padding: 3px 9px; border-radius: 20px; font-size: 0.73rem; border: 1px solid #d9e1e8; color: #6f7f8d; }
+    .ui-pill.on { border-color: #22c55e; color: #22c55e; background: rgba(34,197,94,0.08); }
+    .ui-radio-group { display: flex; gap: 1rem; align-items: center; font-size: 0.85rem; }
+    .ui-input { padding: 0.35rem 0.65rem; border: 1px solid #d9e1e8; border-radius: 6px; font-size: 0.82rem; color: #243746; background: #f9fbfd; }
+    .callout { display: flex; gap: 0.75rem; padding: 0.85rem 1rem; border-radius: 8px; margin: 1rem 0; font-size: 0.9rem; }
+    .callout-icon { font-size: 1.1rem; flex-shrink: 0; }
+    .callout.info { background: rgba(13,116,209,0.07); border-left: 3px solid #0d74d1; }
+    .callout.warn { background: rgba(245,158,11,0.08); border-left: 3px solid #f59e0b; }
+    .callout.success { background: rgba(18,168,108,0.07); border-left: 3px solid #12a86c; }
+    .callout.tip { background: rgba(111,127,141,0.07); border-left: 3px solid #6f7f8d; }
+
+    /* Flow diagram */
+    .flow { display: flex; flex-wrap: wrap; align-items: center; gap: 0; margin: 1.25rem 0; }
+    .flow-step { background: #fff; border: 1px solid #d9e1e8; border-radius: 8px; padding: 0.6rem 0.85rem; font-size: 0.82rem; text-align: center; min-width: 110px; }
+    .flow-step .flow-icon { font-size: 1.2rem; display: block; margin-bottom: 0.2rem; }
+    .flow-step strong { display: block; font-size: 0.8rem; color: #243746; }
+    .flow-step span { display: block; font-size: 0.72rem; color: #6f7f8d; }
+    .flow-arrow { color: #0d74d1; font-size: 1.1rem; padding: 0 0.35rem; }
+
+    /* Property table */
+    .prop-table { width: 100%; border-collapse: collapse; font-size: 0.86rem; margin: 0.75rem 0 1.25rem; }
+    .prop-table th { background: #f4f6f8; color: #556574; font-weight: 600; padding: 0.45rem 0.75rem; border: 1px solid #d9e1e8; text-align: left; }
+    .prop-table td { padding: 0.45rem 0.75rem; border: 1px solid #e8edf2; vertical-align: top; }
+    .prop-table td:first-child { font-family: 'JetBrains Mono', monospace; font-size: 0.78em; background: rgba(13,116,209,0.04); white-space: nowrap; }
+
+    /* Association diagram */
+    .assoc-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: 0.75rem; margin: 1rem 0; }
+    .assoc-box { background: #fff; border: 2px solid #d9e1e8; border-radius: 8px; padding: 0.75rem; text-align: center; font-size: 0.82rem; }
+    .assoc-box.primary { border-color: #0d74d1; background: rgba(13,116,209,0.04); }
+    .assoc-box .assoc-icon { font-size: 1.4rem; display: block; margin-bottom: 0.25rem; }
+    .assoc-box strong { display: block; font-size: 0.85rem; margin-bottom: 0.2rem; }
+    .assoc-box span { color: #6f7f8d; font-size: 0.75rem; }
+
+    /* Scenario cards */
+    .scenario-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.75rem; margin: 1rem 0; }
+    .scenario-card { background: #fff; border: 1px solid #d9e1e8; border-radius: 8px; padding: 0.85rem; }
+    .scenario-card h4 { margin: 0 0 0.4rem; font-size: 0.88rem; color: #0d74d1; }
+    .scenario-card p { font-size: 0.8rem; color: #6f7f8d; margin: 0 0 0.4rem; }
+    .scenario-card .scenario-result { font-size: 0.78rem; background: rgba(18,168,108,0.08); border-radius: 4px; padding: 0.3rem 0.5rem; color: #12a86c; font-weight: 600; }
+
+    @media (max-width: 768px) {
+      .sidebar { display: none; }
+      .main { padding: 1.25rem; }
+      .scenario-grid { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand"><span class="brand-dot"></span>Dealmakers HubSpot Integration</div>
+  <nav class="top-nav">
+    <a href="/events">Events</a>
+    <a href="/help" class="active">User Guide</a>
+  </nav>
+</header>
+
+<div class="layout">
+
+  <!-- Sidebar navigation -->
+  <nav class="sidebar">
+    <h3>Getting started</h3>
+    <ul>
+      <li><a href="#overview">Overview</a></li>
+      <li><a href="#how-it-works">How the integration works</a></li>
+    </ul>
+    <h3>Screens</h3>
+    <ul>
+      <li><a href="#events-home">Events home</a></li>
+      <li><a href="#event-setup">Event setup</a></li>
+      <li><a href="#attendees">Attendees list</a></li>
+      <li><a href="#attendee-detail">Attendee detail</a></li>
+      <li><a href="#question-mappings">Question mappings</a></li>
+    </ul>
+    <h3>Features</h3>
+    <ul>
+      <li><a href="#syncing">Syncing an attendee</a></li>
+      <li><a href="#training-vs-live">Training vs Live mode</a></li>
+      <li><a href="#sync-all">Sync All</a></li>
+      <li><a href="#scheduled-sync">Scheduled (auto) sync</a></li>
+      <li><a href="#backfill">Discount code backfill</a></li>
+    </ul>
+    <h3>HubSpot records</h3>
+    <ul>
+      <li><a href="#records-created">Records created</a></li>
+      <li><a href="#attendee-properties">Attendee properties</a></li>
+      <li><a href="#deal-properties">Deal properties</a></li>
+      <li><a href="#associations">Associations</a></li>
+      <li><a href="#deal-scenarios">Deal scenarios</a></li>
+    </ul>
+  </nav>
+
+  <!-- Main content -->
+  <main class="main">
+
+    <h1>User Guide</h1>
+    <p class="lead">Complete reference for the Dealmakers Cvent &rarr; HubSpot integration.</p>
+
+    <!-- ── OVERVIEW ─────────────────────────────────────────────── -->
+    <h2 id="overview">Overview</h2>
+    <p>This portal connects <strong>Cvent</strong> (your event registration platform) with <strong>HubSpot</strong> (your CRM). When an attendee registers for a Dealmakers event in Cvent, this integration lets you push their details, registration data, and order information directly into HubSpot — creating and updating Contacts, Attendee records, and Deals automatically.</p>
+
+    <div class="callout info">
+      <span class="callout-icon">ℹ️</span>
+      <div>Nothing is ever pushed to Cvent. This is a <strong>one-way sync</strong>: data flows from Cvent into HubSpot only.</div>
+    </div>
+
+    <!-- ── HOW IT WORKS ───────────────────────────────────────────── -->
+    <h2 id="how-it-works">How the integration works</h2>
+    <p>Each sync is triggered manually (per attendee, or batch "Sync All") or on a scheduled basis. When triggered, the integration:</p>
+    <ol>
+      <li>Pulls the attendee's full profile and order history from the <strong>Cvent API</strong></li>
+      <li>Finds or creates a matching <strong>Contact</strong> in HubSpot (matched by email address)</li>
+      <li>Finds or creates an <strong>Attendee</strong> custom object record (matched by Cvent attendee ID)</li>
+      <li>Sets all attendee properties from Cvent data</li>
+      <li>Creates <strong>associations</strong> between the attendee and the relevant HubSpot Events, Festivals, and Sponsors</li>
+      <li>Creates or updates <strong>Deals</strong> to capture revenue</li>
+    </ol>
+
+    <div class="flow">
+      <div class="flow-step"><span class="flow-icon">📋</span><strong>Cvent</strong><span>Attendee &amp; order data</span></div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step"><span class="flow-icon">🔄</span><strong>Portal</strong><span>Sync engine</span></div>
+      <span class="flow-arrow">→</span>
+      <div class="flow-step"><span class="flow-icon">👤</span><strong>Contact</strong><span>HubSpot CRM</span></div>
+      <span class="flow-arrow">+</span>
+      <div class="flow-step"><span class="flow-icon">🏷️</span><strong>Attendee</strong><span>Custom object</span></div>
+      <span class="flow-arrow">+</span>
+      <div class="flow-step"><span class="flow-icon">💰</span><strong>Deals</strong><span>Revenue</span></div>
+    </div>
+
+    <h3>Transaction steps</h3>
+    <p>Attendees in Cvent can have multiple order transactions (e.g. initial registration, then a paid upgrade). The sync processes each transaction as a separate step — this is what you see as numbered tabs in the Training report. <strong>Phantom transactions</strong> (identical to a previous step) are automatically skipped to prevent duplicate deals.</p>
+
+    <h3>Skip rules</h3>
+    <p>The following attendees are skipped or handled differently:</p>
+    <ul>
+      <li><strong>No email address</strong> — sync fails with an error (email is required to find/create a Contact)</li>
+      <li><strong>Not "Accepted" status and never previously synced</strong> — skipped entirely (no HubSpot writes)</li>
+      <li><strong>Cancelled and previously synced</strong> — only the <code>cvent_reg_status</code> and <code>cvent_cancelled</code> fields are updated on the Attendee; no new associations or deals are created</li>
+    </ul>
+
+    <!-- ── EVENTS HOME ─────────────────────────────────────────────── -->
+    <h2 id="events-home">Events home</h2>
+    <p>The home screen when you open the portal. It lists all your active Cvent events and provides access to all main features.</p>
+
+    <div class="screen-mock">
+      <div class="screen-mock-bar">
+        <span class="screen-mock-dot" style="background:#ff5f57"></span>
+        <span class="screen-mock-dot" style="background:#febc2e"></span>
+        <span class="screen-mock-dot" style="background:#28c840"></span>
+        <span class="screen-mock-url">https://your-app.railway.app/events</span>
+      </div>
+      <div class="screen-mock-body">
+        <div class="ui-topbar">
+          <div class="ui-brand"><span class="ui-brand-dot"></span>Dealmakers HubSpot Integration</div>
+        </div>
+        <div class="ui-card">
+          <div class="ui-card-label">Question mappings</div>
+          <div class="ui-card-text">Map Cvent question codes to HubSpot Attendee properties.</div>
+          <button class="ui-btn">Configure question mappings →</button>
+        </div>
+        <div class="ui-card">
+          <div class="ui-card-label">Backfill discount codes</div>
+          <div class="ui-card-text">One-time sync to populate missing discount code fields.</div>
+          <button class="ui-btn primary">Run backfill</button>
+        </div>
+        <div class="ui-card">
+          <div class="ui-card-label">Events</div>
+          <input class="ui-input" style="width:100%;margin-bottom:0.65rem;" placeholder="Search events by name..." readonly>
+          <table class="ui-table">
+            <thead><tr><th>Event name</th><th>Code</th><th>Start date</th><th>Actions</th><th>Auto-sync</th></tr></thead>
+            <tbody>
+              <tr>
+                <td>Dealmakers Summit 2026</td>
+                <td class="mono" style="font-size:0.75rem;">DMS26</td>
+                <td>Jun 2026</td>
+                <td><div style="display:flex;gap:6px;align-items:center;">
+                  <div style="width:28px;height:28px;border-radius:50%;border:2px solid #12a86c;display:flex;align-items:center;justify-content:center;"><span class="ui-dot green"></span></div>
+                  <button class="ui-btn" style="padding:4px 8px;font-size:0.75rem;">👥</button>
+                </div></td>
+                <td><span class="ui-pill on">● ON</span></td>
+              </tr>
+              <tr>
+                <td>Annual Finance Forum</td>
+                <td class="mono" style="font-size:0.75rem;">AFF26</td>
+                <td>Sep 2026</td>
+                <td><div style="display:flex;gap:6px;align-items:center;">
+                  <div style="width:28px;height:28px;border-radius:50%;border:2px solid #f59e0b;display:flex;align-items:center;justify-content:center;"><span class="ui-dot amber"></span></div>
+                  <button class="ui-btn" style="padding:4px 8px;font-size:0.75rem;">👥</button>
+                </div></td>
+                <td><span class="ui-pill">● OFF</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <h3>Events table</h3>
+    <ul>
+      <li><strong>Event name / Code / Start date</strong> — pulled live from Cvent each page load</li>
+      <li><strong>Setup status dot</strong> (coloured circle button) — indicates how complete the HubSpot setup is for this event. Click it to open the <a href="#event-setup">Event Setup</a> screen.
+        <ul>
+          <li><span class="ui-dot green" style="vertical-align:middle"></span> <strong>Green</strong> — admission items mapped, questions mapped</li>
+          <li><span class="ui-dot amber" style="vertical-align:middle"></span> <strong>Amber</strong> — partial setup (some mappings missing)</li>
+          <li><span class="ui-dot red" style="vertical-align:middle"></span> <strong>Red</strong> — no mappings configured</li>
+          <li><span class="ui-dot grey" style="vertical-align:middle"></span> <strong>Grey</strong> — no attendee data yet</li>
+        </ul>
+      </li>
+      <li><strong>Attendees button</strong> (👥) — opens the <a href="#attendees">Attendees list</a> for that event</li>
+      <li><strong>Auto-sync toggle</strong> — enables/disables the 30-minute <a href="#scheduled-sync">scheduled sync</a> for the event</li>
+    </ul>
+
+    <h3>Recent sync activity</h3>
+    <p>Below the events table, a live feed of the last sync operations shows mode (Training/Live), status (success/partial/failed), attendee name, and any errors. This is useful for monitoring batch syncs and diagnosing issues.</p>
+
+    <!-- ── EVENT SETUP ─────────────────────────────────────────────── -->
+    <h2 id="event-setup">Event setup</h2>
+    <p>Accessed by clicking the <strong>setup status dot</strong> next to any event. This is where you configure how Cvent data maps to HubSpot for that specific event.</p>
+
+    <div class="screen-mock">
+      <div class="screen-mock-bar">
+        <span class="screen-mock-dot" style="background:#ff5f57"></span>
+        <span class="screen-mock-dot" style="background:#febc2e"></span>
+        <span class="screen-mock-dot" style="background:#28c840"></span>
+        <span class="screen-mock-url">https://your-app.railway.app/events — HubSpot Setup</span>
+      </div>
+      <div class="screen-mock-body">
+        <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;color:#6f7f8d;margin-bottom:0.5rem;">HUBSPOT SETUP FOR <strong style="color:#243746">Dealmakers Summit 2026</strong></div>
+        <div class="ui-card">
+          <div class="ui-card-label">Deal currency</div>
+          <div class="ui-card-text">Currency applied to all deals created for this event.</div>
+          <div style="display:flex;gap:0.6rem;align-items:center;">
+            <select class="ui-input" style="min-width:0;width:auto;"><option>GBP — British Pound Sterling</option><option>USD — US Dollar</option></select>
+            <button class="ui-btn primary">Save</button>
+          </div>
+        </div>
+        <div class="ui-card">
+          <div class="ui-card-label">Admission items</div>
+          <table class="ui-table">
+            <thead><tr><th>Code</th><th>Name</th><th>HubSpot events</th></tr></thead>
+            <tbody>
+              <tr><td class="mono" style="font-size:0.75rem;">PAYDEL</td><td>Paying Delegate</td><td><span class="ui-badge blue">DM Summit 2026</span> <button class="ui-btn" style="padding:2px 7px;font-size:0.72rem;">+</button></td></tr>
+              <tr><td class="mono" style="font-size:0.75rem;">SPEAK</td><td>Speaker Pass</td><td><button class="ui-btn" style="padding:2px 7px;font-size:0.72rem;">+</button></td></tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
+
+    <h3>Deal currency</h3>
+    <p>Select the currency for all deals created for this event from your HubSpot portal's configured currencies, then click <strong>Save</strong>. This sets the <code>deal_currency_code</code> property on every deal created during sync.</p>
+
+    <h3>Registration types &amp; paths</h3>
+    <p>Read-only badges showing the registration types (e.g. Paying Delegate, Speaker) and paths (e.g. Public, Invite Only) configured in Cvent for this event. These drive the attendee labels and deal scenarios during sync — no action required here.</p>
+
+    <h3>Admission items</h3>
+    <p>Cvent <strong>admission items</strong> represent what an attendee paid for (e.g. "Paying Delegate Pass"). Each must be linked to one or more <strong>HubSpot Event</strong> objects so the sync knows which event to associate the attendee and deal to.</p>
+    <p>Click <strong>+</strong> to open a picker, select the relevant HubSpot event(s), and save. The mapping is stored directly on the HubSpot Event record's <code>cvent_admission_item_ids</code> property.</p>
+
+    <div class="callout warn">
+      <span class="callout-icon">⚠️</span>
+      <div>If admission items are not mapped, the sync cannot determine which HubSpot event to link the attendee to, and <strong>no deal will be created</strong>. Always map admission items before running a live sync.</div>
+    </div>
+
+    <h3>Quantity items</h3>
+    <p>Cvent <strong>quantity items</strong> are add-on purchases (e.g. workshop fees, gala dinner tickets). You can optionally map each quantity item to a <strong>HubSpot Product</strong> — when mapped, the deal created for that quantity item will be associated with that product in HubSpot.</p>
+    <p>Quantity item mappings are stored locally in your browser (not the server). They apply when you sync manually or use "Sync All" from the browser, but <strong>not</strong> during scheduled auto-syncs.</p>
+
+    <h3>Registration questions</h3>
+    <p>Cvent registration questions (e.g. "Job title", "How did you hear about us?") can be mapped to HubSpot Attendee properties. The question's answer is then written to that property on every sync. See <a href="#question-mappings">Question mappings</a> for full details.</p>
+
+    <!-- ── ATTENDEES LIST ─────────────────────────────────────────────── -->
+    <h2 id="attendees">Attendees list</h2>
+    <p>Click the <strong>👥 attendees button</strong> next to any event to see all registered attendees from Cvent.</p>
+
+    <div class="screen-mock">
+      <div class="screen-mock-bar">
+        <span class="screen-mock-dot" style="background:#ff5f57"></span>
+        <span class="screen-mock-dot" style="background:#febc2e"></span>
+        <span class="screen-mock-dot" style="background:#28c840"></span>
+        <span class="screen-mock-url">https://your-app.railway.app/events — Attendees</span>
+      </div>
+      <div class="screen-mock-body">
+        <div style="font-size:0.7rem;text-transform:uppercase;letter-spacing:0.06em;color:#6f7f8d;margin-bottom:0.75rem;">ATTENDEES FOR <strong style="color:#243746">Dealmakers Summit 2026</strong></div>
+        <div style="display:flex;gap:0.6rem;margin-bottom:0.75rem;flex-wrap:wrap;">
+          <button class="ui-btn primary">Sync All Attendees</button>
+          <button class="ui-btn">Clear sync status</button>
+        </div>
+        <table class="ui-table">
+          <thead><tr><th>Name</th><th>Email</th><th>Type</th><th>Status</th><th>Last updated</th><th>Synced</th></tr></thead>
+          <tbody>
+            <tr><td>Jane Smith</td><td style="font-size:0.78rem;">jane@corp.com</td><td><span class="ui-badge blue">Paying Delegate</span></td><td><span class="ui-badge green">Accepted</span></td><td style="font-size:0.78rem;">2 days ago</td><td><span class="ui-badge green">✓ Synced</span></td></tr>
+            <tr><td>Tom Jones</td><td style="font-size:0.78rem;">tom@bank.com</td><td><span class="ui-badge amber">Speaker</span></td><td><span class="ui-badge green">Accepted</span></td><td style="font-size:0.78rem;">1 hour ago</td><td><span class="ui-badge grey">Not synced</span></td></tr>
+            <tr><td>Ali Hassan</td><td style="font-size:0.78rem;">ali@fund.com</td><td><span class="ui-badge blue">Paying Delegate</span></td><td><span class="ui-badge red">Cancelled</span></td><td style="font-size:0.78rem;">5 days ago</td><td><span class="ui-badge green">✓ Synced</span></td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <h3>Columns</h3>
+    <ul>
+      <li><strong>Name / Email</strong> — from Cvent. Click the name to open the <a href="#attendee-detail">Attendee detail</a> view</li>
+      <li><strong>Type</strong> — registration type (e.g. Paying Delegate, Speaker, Sponsor Executive)</li>
+      <li><strong>Status</strong> — Cvent registration status (Accepted, Cancelled, Pending, etc.)</li>
+      <li><strong>Last updated</strong> — when the record was last modified in Cvent</li>
+      <li><strong>Synced</strong> — whether this attendee has a successful live sync recorded</li>
+    </ul>
+
+    <h3>Sync All Attendees</h3>
+    <p>Runs a <strong>live sync</strong> for every attendee in the list sequentially. A progress bar shows the current status. You can cancel mid-way — attendees already processed will retain their synced state. See <a href="#sync-all">Sync All</a> for more detail.</p>
+
+    <h3>Clear sync status</h3>
+    <p>Resets the sync timestamp on HubSpot for all attendees in this event. Use this if you want to force a full re-sync on the next run. This does <em>not</em> delete any HubSpot records — it only clears the <code>last_cvent_sync</code> date field.</p>
+
+    <!-- ── ATTENDEE DETAIL ─────────────────────────────────────────────── -->
+    <h2 id="attendee-detail">Attendee detail</h2>
+    <p>Click any attendee's name to see their full profile, registration answers, order history, and HubSpot sync controls.</p>
+
+    <div class="screen-mock">
+      <div class="screen-mock-bar">
+        <span class="screen-mock-dot" style="background:#ff5f57"></span>
+        <span class="screen-mock-dot" style="background:#febc2e"></span>
+        <span class="screen-mock-dot" style="background:#28c840"></span>
+        <span class="screen-mock-url">https://your-app.railway.app/events — Jane Smith</span>
+      </div>
+      <div class="screen-mock-body">
+        <div style="display:flex;justify-content:space-between;align-items:flex-start;margin-bottom:0.75rem;">
+          <div>
+            <div style="font-size:1.1rem;font-weight:700;">Jane Smith</div>
+            <div style="font-size:0.82rem;color:#6f7f8d;">jane@corp.com · Paying Delegate · <span class="ui-badge green">Accepted</span></div>
+          </div>
+          <button class="ui-btn primary" style="gap:0.3rem;">🔄 Sync with HubSpot</button>
+        </div>
+        <div class="ui-card">
+          <div class="ui-card-label">Attendee details</div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.4rem 1.5rem;font-size:0.82rem;">
+            <div><span style="color:#6f7f8d;">Company</span><br><strong>Corp Ltd</strong></div>
+            <div><span style="color:#6f7f8d;">Admission item</span><br><strong>Paying Delegate Pass</strong></div>
+            <div><span style="color:#6f7f8d;">Cvent Attendee ID</span><br><code>abc-123-def</code></div>
+            <div><span style="color:#6f7f8d;">Last synced</span><br><strong style="color:#12a86c;">✓ 2 days ago</strong></div>
+          </div>
+        </div>
+        <div class="ui-card">
+          <div class="ui-card-label">Registration answers</div>
+          <div style="font-size:0.82rem;color:#6f7f8d;">How did you hear about us? → <strong style="color:#243746">LinkedIn</strong></div>
+          <div style="font-size:0.82rem;color:#6f7f8d;">Job title → <strong style="color:#243746">Head of Finance</strong></div>
+        </div>
+        <div class="ui-card">
+          <div class="ui-card-label">Order &amp; purchase journey</div>
+          <div style="font-size:0.82rem;color:#6f7f8d;">Transaction 1 · Ref: REF001 · <strong style="color:#243746;">£2,500.00</strong> · Paying Delegate Pass</div>
+        </div>
+      </div>
+    </div>
+
+    <h3>Attendee details card</h3>
+    <p>Shows all Cvent profile data: name, company, email, registration type and path, admission item, Cvent attendee ID, confirmation number, registration date, check-in status, and last sync timestamp from HubSpot.</p>
+
+    <h3>Registration answers</h3>
+    <p>All answers to Cvent registration questions. If a question is mapped to a HubSpot property, the current HubSpot value is shown alongside the Cvent answer.</p>
+
+    <h3>Order &amp; purchase journey</h3>
+    <p>Full order history from Cvent including: each transaction step, the admission amount, quantity items purchased, discount codes applied, VAT/tax breakdown, invoice number, and reference ID.</p>
+
+    <h3>Sync button</h3>
+    <p>Opens the <strong>Sync with HubSpot</strong> modal. See <a href="#syncing">Syncing an attendee</a>.</p>
+
+    <!-- ── QUESTION MAPPINGS ─────────────────────────────────────────────── -->
+    <h2 id="question-mappings">Question mappings</h2>
+    <p>Cvent lets attendees answer custom questions during registration (e.g. "Job title", "How did you hear about us?", "Dietary requirements"). Question mappings let you route those answers into specific HubSpot Attendee properties automatically on each sync.</p>
+
+    <h3>How to set up a mapping</h3>
+    <ol>
+      <li>From the home screen, click <strong>Configure question mappings →</strong>, or from an event's setup page scroll to <strong>Registration questions</strong></li>
+      <li>Select the event from the dropdown</li>
+      <li>Find the question you want to map and click <strong>+</strong></li>
+      <li>Either select an existing HubSpot Attendee property, or create a new one on the spot</li>
+      <li>Save — the mapping is stored server-side and applies immediately on the next sync</li>
+    </ol>
+
+    <div class="callout tip">
+      <span class="callout-icon">💡</span>
+      <div>Mappings are per-event, keyed by Cvent question ID. You can create new HubSpot Attendee properties directly from the mapping UI — they are added to the <strong>Registration Questions</strong> property group.</div>
+    </div>
+
+    <!-- ── SYNCING ─────────────────────────────────────────────── -->
+    <h2 id="syncing">Syncing an attendee</h2>
+    <p>Open an attendee's detail view and click <strong>Sync with HubSpot</strong>. A modal appears with two controls:</p>
+
+    <div class="screen-mock">
+      <div class="screen-mock-bar">
+        <span class="screen-mock-dot" style="background:#ff5f57"></span>
+        <span class="screen-mock-dot" style="background:#febc2e"></span>
+        <span class="screen-mock-dot" style="background:#28c840"></span>
+        <span class="screen-mock-url">Sync with HubSpot — modal</span>
+      </div>
+      <div class="screen-mock-body">
+        <div style="background:#fff;border:1px solid #d9e1e8;border-radius:8px;padding:1rem;max-width:520px;">
+          <div style="font-weight:700;font-size:1rem;margin-bottom:0.75rem;border-bottom:1px solid #eee;padding-bottom:0.5rem;">Sync with HubSpot</div>
+          <div style="display:flex;align-items:center;gap:1rem;margin-bottom:1rem;">
+            <span style="font-size:0.85rem;color:#6f7f8d;">Mode:</span>
+            <label style="font-size:0.9rem;display:flex;align-items:center;gap:0.3rem;"><input type="radio" checked> Training</label>
+            <label style="font-size:0.9rem;display:flex;align-items:center;gap:0.3rem;"><input type="radio"> Live</label>
+            <button class="ui-btn primary" style="margin-left:auto;">Run sync</button>
+          </div>
+          <div style="background:rgba(245,158,11,0.1);border-left:3px solid #f59e0b;border-radius:0 6px 6px 0;padding:0.65rem 0.85rem;font-size:0.85rem;color:#d97706;">
+            <strong>Training mode</strong> — No changes will be made to HubSpot. This is a preview of what would happen.
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- ── TRAINING VS LIVE ─────────────────────────────────────────────── -->
+    <h2 id="training-vs-live">Training vs Live mode</h2>
+
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:0.85rem;margin:1rem 0;">
+      <div class="ui-card">
+        <div class="ui-card-label" style="color:#d97706;">🧪 Training mode</div>
+        <ul style="font-size:0.85rem;padding-left:1.2rem;margin:0;">
+          <li>No writes to HubSpot</li>
+          <li>Shows a full preview report</li>
+          <li>Displays which Contact and Attendee would be found or created</li>
+          <li>Shows the full deal plan with amounts</li>
+          <li>Shows event, festival, and sponsor associations</li>
+          <li>Safe to run as many times as needed</li>
+        </ul>
+      </div>
+      <div class="ui-card">
+        <div class="ui-card-label" style="color:#12a86c;">✅ Live mode</div>
+        <ul style="font-size:0.85rem;padding-left:1.2rem;margin:0;">
+          <li>Creates/updates records in HubSpot</li>
+          <li>Processes each transaction step in order</li>
+          <li>Creates Contact if not found</li>
+          <li>Creates or updates Attendee record</li>
+          <li>Creates associations to Events, Festivals, Sponsors</li>
+          <li>Creates or updates Deals with amounts and tax</li>
+        </ul>
+      </div>
+    </div>
+
+    <div class="callout success">
+      <span class="callout-icon">✅</span>
+      <div>Always run <strong>Training mode first</strong> to verify the deal amounts, event associations, and property values before committing a live sync.</div>
+    </div>
+
+    <!-- ── SYNC ALL ─────────────────────────────────────────────── -->
+    <h2 id="sync-all">Sync All</h2>
+    <p>From the Attendees list, click <strong>Sync All Attendees</strong> to sync every attendee in the event in one go. This always runs in <strong>Live mode</strong> — a confirmation dialog warns you before starting.</p>
+    <ul>
+      <li>Attendees are processed sequentially, one at a time</li>
+      <li>A progress bar and counter show how many have been processed</li>
+      <li>Click <strong>Cancel</strong> to stop after the current attendee finishes</li>
+      <li>A summary at the end shows how many succeeded, were skipped, or had errors</li>
+    </ul>
+
+    <div class="callout warn">
+      <span class="callout-icon">⚠️</span>
+      <div>Sync All can take several minutes for large events. Do not close the browser tab while it is running.</div>
+    </div>
+
+    <!-- ── SCHEDULED SYNC ─────────────────────────────────────────────── -->
+    <h2 id="scheduled-sync">Scheduled (auto) sync</h2>
+    <p>Enable the <strong>Auto-sync</strong> toggle on an event to have it synced automatically every 30 minutes in the background, without any manual action.</p>
+
+    <h3>How it works</h3>
+    <ol>
+      <li>The portal's background worker checks for due events every 2 minutes</li>
+      <li>An event is "due" if auto-sync is enabled and it hasn't run in the last 30 minutes</li>
+      <li>The worker fetches all Cvent attendees for the event</li>
+      <li>Attendees who haven't changed in Cvent since their last successful sync are skipped (incremental — only new/modified records are processed)</li>
+      <li>Each due attendee is synced in live mode</li>
+    </ol>
+
+    <div class="callout info">
+      <span class="callout-icon">ℹ️</span>
+      <div>Scheduled syncs require a PostgreSQL database (<code>DATABASE_URL</code> environment variable) to persist state. Without it, the toggle will appear to work but the schedule won't survive a server restart.</div>
+    </div>
+
+    <div class="callout tip">
+      <span class="callout-icon">💡</span>
+      <div>Quantity item → HubSpot Product mappings (configured in Event Setup) only apply to manual/Sync All runs from the browser. Scheduled syncs do not apply these mappings.</div>
+    </div>
+
+    <!-- ── BACKFILL ─────────────────────────────────────────────── -->
+    <h2 id="backfill">Discount code backfill</h2>
+    <p>A one-time repair tool, available from the home screen. It finds all HubSpot Attendee records that have a registration status set (i.e. were previously synced) but are missing a discount code, then fetches the discount code from Cvent and writes it back to HubSpot.</p>
+
+    <h3>When to use it</h3>
+    <p>If discount codes were not captured in earlier syncs (e.g. before the discount code feature was added), run this once to backfill all missing values. It is safe to run multiple times — it only updates records where the <code>discount_code</code> field is currently empty.</p>
+
+    <h3>How to run it</h3>
+    <ol>
+      <li>From the home screen, find the <strong>Backfill discount codes</strong> card</li>
+      <li>Click <strong>Run backfill</strong></li>
+      <li>A progress bar shows total / processed / updated / skipped / errors</li>
+      <li>The job runs in the background — you can navigate away and come back</li>
+    </ol>
+
+    <!-- ── RECORDS CREATED ─────────────────────────────────────────────── -->
+    <h2 id="records-created">Records created in HubSpot</h2>
+    <p>A single live sync for one attendee can create or update up to 4 types of records in HubSpot:</p>
+
+    <div class="assoc-grid">
+      <div class="assoc-box primary">
+        <span class="assoc-icon">👤</span>
+        <strong>Contact</strong>
+        <span>Found by email, or created if new. First name, last name, email set on creation.</span>
+      </div>
+      <div class="assoc-box primary">
+        <span class="assoc-icon">🏷️</span>
+        <strong>Attendee</strong>
+        <span>Custom object (2-44005420). Found by Cvent ID, or created. All properties updated every sync.</span>
+      </div>
+      <div class="assoc-box primary">
+        <span class="assoc-icon">💰</span>
+        <strong>Deal</strong>
+        <span>One per event (admission). Additional deals for quantity items. Created if conditions met.</span>
+      </div>
+      <div class="assoc-box">
+        <span class="assoc-icon">📦</span>
+        <strong>Product link</strong>
+        <span>Quantity item deals are linked to a HubSpot Product if a mapping exists.</span>
+      </div>
+    </div>
+
+    <!-- ── ATTENDEE PROPERTIES ─────────────────────────────────────────────── -->
+    <h2 id="attendee-properties">Attendee properties set</h2>
+    <p>Every sync updates the following properties on the HubSpot Attendee custom object record:</p>
+
+    <table class="prop-table">
+      <thead><tr><th>Property</th><th>Source</th><th>Description</th></tr></thead>
+      <tbody>
+        <tr><td>attendee_name</td><td>Cvent</td><td>Full name (first + last)</td></tr>
+        <tr><td>first_name / last_name</td><td>Cvent</td><td>Split name fields</td></tr>
+        <tr><td>email</td><td>Cvent</td><td>Registration email</td></tr>
+        <tr><td>company_name</td><td>Cvent</td><td>Company/organisation name</td></tr>
+        <tr><td>country</td><td>Cvent</td><td>Attendee country</td></tr>
+        <tr><td>job_title</td><td>Cvent</td><td>Job title</td></tr>
+        <tr><td>phone_number</td><td>Cvent</td><td>Phone number</td></tr>
+        <tr><td>linkedin_url</td><td>Cvent</td><td>LinkedIn profile URL</td></tr>
+        <tr><td>cvent_attendee_id</td><td>Cvent</td><td>Unique Cvent attendee GUID</td></tr>
+        <tr><td>cvent_reg_status</td><td>Cvent</td><td>Registration status (Accepted, Cancelled, etc.)</td></tr>
+        <tr><td>cvent_registration_type</td><td>Cvent</td><td>Registration type (e.g. Paying Delegate)</td></tr>
+        <tr><td>cvent_admission_item</td><td>Cvent</td><td>Name of the admission item purchased</td></tr>
+        <tr><td>cvent_confirmation_number</td><td>Cvent</td><td>Cvent confirmation number</td></tr>
+        <tr><td>cvent_invoice_number</td><td>Cvent</td><td>Order invoice number</td></tr>
+        <tr><td>cvent_reference_id</td><td>Cvent</td><td>Order reference ID</td></tr>
+        <tr><td>cvent_reg_date</td><td>Cvent</td><td>Date of registration</td></tr>
+        <tr><td>cvent_cancelled</td><td>Cvent</td><td>"true" if the registration is cancelled</td></tr>
+        <tr><td>cvent_amount_due</td><td>Cvent order</td><td>Current amount due on the order</td></tr>
+        <tr><td>cvent_amount_excl_vattax</td><td>Cvent order</td><td>Amount excluding VAT/tax</td></tr>
+        <tr><td>discount_code</td><td>Cvent order</td><td>Discount codes applied, semicolon-separated</td></tr>
+        <tr><td>primary_organization_type</td><td>Cvent</td><td>Primary organisation type</td></tr>
+        <tr><td>how_did_you_hear</td><td>Cvent answer</td><td>Answer to the "how did you hear" question</td></tr>
+        <tr><td>special_requirements</td><td>Cvent answer</td><td>Special/accessibility requirements</td></tr>
+        <tr><td>last_cvent_sync</td><td>System</td><td>Timestamp of the last successful sync</td></tr>
+        <tr><td><em>[mapped questions]</em></td><td>Cvent answers</td><td>Any additional properties from question mappings</td></tr>
+      </tbody>
+    </table>
+
+    <!-- ── DEAL PROPERTIES ─────────────────────────────────────────────── -->
+    <h2 id="deal-properties">Deal properties set</h2>
+    <p>Every deal created by the sync has the following properties:</p>
+
+    <table class="prop-table">
+      <thead><tr><th>Property</th><th>Value</th></tr></thead>
+      <tbody>
+        <tr><td>dealname</td><td>"[Attendee Name] - [Event Name]" (or quantity item name)</td></tr>
+        <tr><td>pipeline</td><td>726721932 (fixed)</td></tr>
+        <tr><td>dealstage</td><td>1191309198 (fixed for all deals)</td></tr>
+        <tr><td>deal_currency_code</td><td>Currency set in Event Setup (e.g. GBP)</td></tr>
+        <tr><td>amount</td><td>Net admission amount (or quantity item net amount)</td></tr>
+        <tr><td>cvent_tax_amount</td><td>VAT/tax allocated to this deal</td></tr>
+        <tr><td>company_name</td><td>Attendee's company name</td></tr>
+        <tr><td>country</td><td>Attendee's country</td></tr>
+        <tr><td>cvent_admission_item</td><td>Admission item name</td></tr>
+        <tr><td>cvent_cancelled</td><td>"true" if registration is cancelled</td></tr>
+        <tr><td>cvent_invoice_number</td><td>Order invoice number</td></tr>
+        <tr><td>cvent_reference_id</td><td>Order reference ID</td></tr>
+        <tr><td>primary_organization_type</td><td>Attendee's organisation type</td></tr>
+        <tr><td>cvent_quantity_item_id</td><td>Cvent quantity item ID (quantity deals only)</td></tr>
+      </tbody>
+    </table>
+
+    <div class="callout info">
+      <span class="callout-icon">ℹ️</span>
+      <div>Deals are only created when the attendee's status is <strong>Accepted</strong> and the order amount is <strong>greater than zero</strong>. Free registrations do not generate deals.</div>
+    </div>
+
+    <!-- ── ASSOCIATIONS ─────────────────────────────────────────────── -->
+    <h2 id="associations">Associations made in HubSpot</h2>
+    <p>The sync creates the following associations between HubSpot objects:</p>
+
+    <table class="prop-table">
+      <thead><tr><th>From</th><th>To</th><th>Notes</th></tr></thead>
+      <tbody>
+        <tr><td>Contact</td><td>Attendee</td><td>Created when the Attendee record is first created</td></tr>
+        <tr><td>Attendee</td><td>HubSpot Event</td><td>Labelled association (e.g. "Paying Delegate", "Speaker", "Sponsor Executive"). One per event.</td></tr>
+        <tr><td>Attendee</td><td>Festival</td><td>Where applicable, based on admission item mapping</td></tr>
+        <tr><td>Attendee</td><td>Sponsor</td><td>For sponsor-type registrations; matched by discount code</td></tr>
+        <tr><td>Attendee</td><td>Festival Sponsor</td><td>As above, for festival-level sponsors</td></tr>
+        <tr><td>Contact</td><td>Deal</td><td>Standard HubSpot contact → deal association</td></tr>
+        <tr><td>Attendee</td><td>Deal</td><td>Typed association (ID 42); links the specific attendee to the revenue deal</td></tr>
+        <tr><td>Deal</td><td>HubSpot Event</td><td>Links the deal to the event it relates to</td></tr>
+        <tr><td>Deal</td><td>Company</td><td>Contact's primary associated company (if any)</td></tr>
+        <tr><td>Deal</td><td>Product</td><td>Quantity item deals only, when a product mapping exists</td></tr>
+      </tbody>
+    </table>
+
+    <h3>Association labels (Attendee → Event)</h3>
+    <p>The association between an Attendee and a HubSpot Event carries a <strong>label</strong> that describes the attendee's role at that event:</p>
+    <ul>
+      <li><span class="ui-badge blue">Paying Delegate</span> — paid admission attendee</li>
+      <li><span class="ui-badge amber">Speaker - Non Sponsor</span> — speaker not associated with a sponsor</li>
+      <li><span class="ui-badge amber">Speaker - Sponsor</span> — speaker who is also sponsor-linked</li>
+      <li><span class="ui-badge green">Dealmakers Guest</span> — guest/complimentary attendee</li>
+      <li><span class="ui-badge grey">Sponsor Executive</span> — executive from a sponsoring organisation</li>
+      <li><span class="ui-badge grey">Sponsor Client</span> — client brought by a sponsor</li>
+    </ul>
+
+    <!-- ── DEAL SCENARIOS ─────────────────────────────────────────────── -->
+    <h2 id="deal-scenarios">Deal creation scenarios</h2>
+    <p>The sync engine analyses each attendee's registration type, order history, and number of events to determine how deals should be structured. Here are the main scenarios:</p>
+
+    <div class="scenario-grid">
+      <div class="scenario-card">
+        <h4>Standard (single event)</h4>
+        <p>Attendee registered for one event, paid admission.</p>
+        <div class="scenario-result">→ 1 deal created for the event, amount = admission total</div>
+      </div>
+      <div class="scenario-card">
+        <h4>Standard (multi-event)</h4>
+        <p>Attendee registered for two events, single lump-sum payment.</p>
+        <div class="scenario-result">→ 1 deal per event; admission amount split 50/50</div>
+      </div>
+      <div class="scenario-card">
+        <h4>Paying Delegate upgrade</h4>
+        <p>Existing attendee, 2 events, 2+ transactions (e.g. initial free + paid upgrade).</p>
+        <div class="scenario-result">→ Upserts both existing deals; splits cumulative total 50/50</div>
+      </div>
+      <div class="scenario-card">
+        <h4>Speaker upgrade</h4>
+        <p>Speaker type, 2 events, paid additional transaction for a second event.</p>
+        <div class="scenario-result">→ 1 new deal for the event they are Paying Delegate at; speaker labels applied to both events</div>
+      </div>
+      <div class="scenario-card">
+        <h4>Sponsor upgrade</h4>
+        <p>Sponsor Executive/Client, 2 events, paid upgrade for admission at one event.</p>
+        <div class="scenario-result">→ 1 deal for the event where they are Paying Delegate (not the sponsor event)</div>
+      </div>
+      <div class="scenario-card">
+        <h4>Quantity items</h4>
+        <p>Attendee purchased add-ons (workshop, gala dinner, etc.).</p>
+        <div class="scenario-result">→ 1 separate deal per quantity item, net amount only; linked to product if mapped</div>
+      </div>
+    </div>
+
+    <div class="callout warn">
+      <span class="callout-icon">⚠️</span>
+      <div><strong>No deal is created</strong> when: the attendee's status is not Accepted, or the order amount is zero or negative. Free registrations (speakers, guests) do not generate deals unless they later pay.</div>
+    </div>
+
+    <div style="margin-top:3rem;padding-top:1.5rem;border-top:1px solid var(--border);color:var(--text-muted);font-size:0.82rem;">
+      Dealmakers HubSpot Integration — User Guide &nbsp;·&nbsp; <a href="/events">Back to app</a>
+    </div>
+
+  </main>
+</div>
+
+<script>
+  // Highlight active sidebar link on scroll
+  const headings = document.querySelectorAll('h2[id], h3[id]');
+  const sidebarLinks = document.querySelectorAll('.sidebar a[href^="#"]');
+  const observer = new IntersectionObserver(entries => {
+    entries.forEach(entry => {
+      if (entry.isIntersecting) {
+        sidebarLinks.forEach(l => l.classList.remove('active'));
+        const link = document.querySelector(`.sidebar a[href="#${entry.target.id}"]`);
+        if (link) link.classList.add('active');
+      }
+    });
+  }, { rootMargin: '-20% 0px -70% 0px' });
+  headings.forEach(h => observer.observe(h));
+</script>
+</body>
+</html>

@@ -1890,10 +1890,22 @@ def lookup_attendee_cvent(cvent_event_id: str, cvent_attendee_id: str, access_to
 
     try:
         filter_expr = urllib.parse.quote(f"event.id eq '{cvent_event_id}'")
+        all_items = []
         url = f"{api_base}/attendees?limit=200&filter={filter_expr}"
-        r = _cvent_request_with_retry("GET", url, headers=headers, timeout=30)
-        data = r.json() if r.text else {}
-        items = data.get("data", []) if isinstance(data.get("data"), list) else []
+        for _ in range(200):
+            r = _cvent_request_with_retry("GET", url, headers=headers, timeout=30)
+            if not r.ok:
+                break
+            data = r.json() if r.text else {}
+            page_items = data.get("data", []) if isinstance(data.get("data"), list) else []
+            all_items.extend(page_items)
+            paging = data.get("paging") or {}
+            next_info = (paging.get("_links") or {}).get("next")
+            next_link = next_info.get("href") if isinstance(next_info, dict) else (next_info if isinstance(next_info, str) else None)
+            if not next_link:
+                break
+            url = next_link
+        items = all_items
 
         # Fetch event-questions for question text
         question_text_by_id = {}

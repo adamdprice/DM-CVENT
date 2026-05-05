@@ -115,6 +115,8 @@ _otp_store = {}
 _otp_lock = threading.Lock()
 _otp_email_last_send = {}
 _otp_ip_sends = {}
+_otp_attempts = {}  # email -> attempt count since last code issue
+OTP_MAX_ATTEMPTS = 5
 _sync_log_lock = threading.Lock()
 _sync_logs = []
 _sync_logs_max = 500
@@ -1005,6 +1007,24 @@ If you didn't request this sign-in code, you can safely ignore this email.
         raise RuntimeError(f"SMTP connection failed: {str(e)}") from e
 
 
+@app.after_request
+def _add_security_headers(response):
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+    response.headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains"
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; "
+        "script-src 'self' 'unsafe-inline'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data:; "
+        "connect-src 'self'; "
+        "font-src 'self'; "
+        "frame-ancestors 'none';"
+    )
+    return response
+
+
 @app.before_request
 def _require_auth():
     if not AUTH_ENABLED:
@@ -1024,7 +1044,7 @@ def _require_auth():
         return None
     if _verify_session_cookie():
         return None
-    if request.headers.get("X-Scheduler-Key") == _SCHEDULER_KEY:
+    if request.headers.get("X-Scheduler-Key") == _SCHEDULER_KEY and path == "/api/hubspot/sync-attendee":
         return None
     if path == "/" or path == "/events":
         return redirect("/login")
@@ -1070,10 +1090,11 @@ def send_code():
             app.logger.warning("auth.send_code rate_limited_ip ip=%s", ip)
             return jsonify({"error": "Too many requests; try again later"}), 429
         _otp_ip_sends[ip].append(now)
-        import random
-        code = "".join(str(random.randint(0, 9)) for _ in range(6))
+        import secrets
+        code = "".join(str(secrets.randbelow(10)) for _ in range(6))
         _otp_store[email] = {"code": code, "expires_at": now + OTP_CODE_EXPIRY_SECONDS}
         _otp_email_last_send[email] = now
+        _otp_attempts[email] = 0  # reset attempt counter on new code
     try:
         _send_otp_email(email, code)
         app.logger.info("auth.send_code success email=%s", _mask_email_for_logs(email))
@@ -1095,6 +1116,14 @@ def verify_code():
     code = (data.get("code") or "").strip()
     if not email or not code:
         return jsonify({"error": "Email and code required"}), 400
+    # Enforce per-email attempt limit before checking the code
+    with _otp_lock:
+        attempts = _otp_attempts.get(email, 0)
+        if attempts >= OTP_MAX_ATTEMPTS:
+            app.logger.warning("auth.verify_code locked_out email=%s attempts=%d", _mask_email_for_logs(email), attempts)
+            return jsonify({"error": "Too many incorrect attempts; request a new code"}), 429
+        _otp_attempts[email] = attempts + 1
+
     otp_payload = _read_otp_cookie()
     if otp_payload:
         cookie_email = (otp_payload.get("email") or "").strip().lower()
@@ -1121,6 +1150,8 @@ def verify_code():
                 app.logger.warning("auth.verify_code invalid email=%s", _mask_email_for_logs(email))
                 return jsonify({"error": "Invalid code"}), 401
             del _otp_store[email]
+    with _otp_lock:
+        _otp_attempts.pop(email, None)
     app.logger.info("auth.verify_code success email=%s", _mask_email_for_logs(email))
     resp = jsonify({"ok": True})
     resp.delete_cookie(OTP_COOKIE_NAME, path="/")

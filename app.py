@@ -1633,7 +1633,7 @@ def _build_deal_plan(
                 "amount": amt,
                 "dealname": dealname,
                 "properties": props,
-                "action": "create",
+                "action": "upsert",
             })
 
         # Sponsor upgrade: Sponsor Client/Executive paid for admission item. Sponsor's event = Sponsor Exec/Client;
@@ -1744,7 +1744,7 @@ def _build_deal_plan(
                     "amount": amt,
                     "dealname": dealname,
                     "properties": props,
-                    "action": "create",
+                    "action": "upsert",
                 })
 
         # Standard: split across all events
@@ -1778,7 +1778,9 @@ def _build_deal_plan(
                     "amount": amount_each,
                     "dealname": dealname,
                     "properties": props,
-                    "action": "create",
+                    # Use upsert so re-syncs triggered by check-ins or other Cvent
+                    # lastModified updates don't create duplicate deals.
+                    "action": "upsert",
                 })
 
     # Allocate tax across planned admission deals, then create quantity deals (net amounts only).
@@ -1884,7 +1886,9 @@ def _build_deal_plan(
                     "tax_amount": qi_tax,
                     "dealname": dealname,
                     "properties": props,
-                    "action": "create",
+                    # Use upsert — dealname includes the QI ID so exact-match lookup is
+                    # reliable; prevents duplicates when a check-in re-triggers the sync.
+                    "action": "upsert",
                     "component": "quantity",
                     "product_id": product_id,
                     "product_name": product_name,
@@ -4401,40 +4405,63 @@ def _hubspot_update_deal(deal_id: str, properties: dict) -> bool:
 
 
 def _hubspot_search_deals_for_contact(contact_id: str, limit: int = 20) -> list:
-    """Return list of deals associated to a contact (for finding existing deal to update)."""
+    """
+    Return list of deals associated to a contact (for finding existing deal to update).
+    Paginates the associations endpoint so contacts with many historical deals are handled
+    correctly — previously capped at 20 which caused duplicates when an existing deal fell
+    beyond that position in the list.
+    """
     if not HUBSPOT_TOKEN or not contact_id:
         return []
     try:
-        r = requests.get(
-            f"https://api.hubapi.com/crm/v4/objects/contacts/{contact_id}/associations/deals",
-            headers={"Authorization": f"Bearer {HUBSPOT_TOKEN}"},
-            timeout=15,
-        )
-        if not r.ok:
-            return []
-        results = r.json().get("results", [])
+        # Paginate the associations endpoint to collect ALL deal IDs for this contact.
         deal_ids = []
-        for a in results:
-            did = a.get("toObjectId") or a.get("id")
-            if did and str(did) not in deal_ids:
-                deal_ids.append(str(did))
+        after = None
+        for _ in range(50):  # safety cap: 500 page limit * 500 results = up to 25,000 deals
+            params = {"limit": 500}
+            if after:
+                params["after"] = after
+            r = requests.get(
+                f"https://api.hubapi.com/crm/v4/objects/contacts/{contact_id}/associations/deals",
+                headers={"Authorization": f"Bearer {HUBSPOT_TOKEN}"},
+                params=params,
+                timeout=15,
+            )
+            if not r.ok:
+                break
+            data = r.json()
+            for a in data.get("results", []):
+                did = str(a.get("toObjectId") or a.get("id") or "")
+                if did and did not in deal_ids:
+                    deal_ids.append(did)
+            after = (data.get("paging") or {}).get("next", {}).get("after")
+            if not after:
+                break
+
         if not deal_ids:
             return []
+
+        # Batch-read deal properties in chunks of 100 (HubSpot batch read limit).
         out = []
-        for did in deal_ids[:limit]:
-            dr = requests.get(
-                f"https://api.hubapi.com/crm/v3/objects/deals/{did}",
-                headers={"Authorization": f"Bearer {HUBSPOT_TOKEN}"},
-                params={"properties": "dealname,amount"},
-                timeout=10,
+        chunk_size = 100
+        for i in range(0, len(deal_ids), chunk_size):
+            chunk = deal_ids[i:i + chunk_size]
+            br = requests.post(
+                "https://api.hubapi.com/crm/v3/objects/deals/batch/read",
+                headers={"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"},
+                json={
+                    "inputs": [{"id": did} for did in chunk],
+                    "properties": ["dealname", "amount"],
+                },
+                timeout=20,
             )
-            if dr.ok:
-                j = dr.json()
-                out.append({
-                    "id": j.get("id"),
-                    "dealname": (j.get("properties") or {}).get("dealname", ""),
-                    "amount": (j.get("properties") or {}).get("amount", ""),
-                })
+            if br.ok:
+                for j in br.json().get("results", []):
+                    out.append({
+                        "id": j.get("id"),
+                        "dealname": (j.get("properties") or {}).get("dealname", ""),
+                        "amount": (j.get("properties") or {}).get("amount", ""),
+                    })
         return out
     except Exception:
         return []
@@ -4777,10 +4804,18 @@ def _execute_sync_step(
         tax_amount = item.get("tax_amount")
         product_id = str((item.get("product_id") or "")).strip()
         if action in ("update_existing", "upsert"):
+            # Prefer an exact full-name match to avoid false positives when two events
+            # share a company name (e.g. "LFEU26 - Acme - Delegate" vs "IPEU26 - Acme - Delegate").
             existing = next(
-                (d for d in contact_deals if event_name and (event_name in (d.get("dealname") or ""))),
+                (d for d in contact_deals if dealname and (d.get("dealname") or "").strip() == dealname.strip()),
                 None,
             )
+            if existing is None:
+                # Fallback: partial match on event_name for legacy deal names that may differ slightly.
+                existing = next(
+                    (d for d in contact_deals if event_name and (event_name in (d.get("dealname") or ""))),
+                    None,
+                )
             if existing:
                 update_props = {}
                 if amount is not None:

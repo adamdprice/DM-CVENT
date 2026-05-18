@@ -4367,15 +4367,15 @@ def _hubspot_create_deal(properties: dict) -> dict:
     if not HUBSPOT_TOKEN or not properties:
         return {}
     try:
+        props_to_send = {k: str(v) if v is not None else "" for k, v in properties.items()}
+        props_to_send["cvent_deal"] = "true"
         r = requests.post(
             "https://api.hubapi.com/crm/v3/objects/deals",
             headers={
                 "Authorization": f"Bearer {HUBSPOT_TOKEN}",
                 "Content-Type": "application/json",
             },
-            json={
-                "properties": {k: str(v) if v is not None else "" for k, v in properties.items()}
-            },
+            json={"properties": props_to_send},
             timeout=15,
         )
         if not r.ok:
@@ -4618,12 +4618,15 @@ def _execute_sync_step(
     deal_plan: list = None,
     existing_contact_id: str = None,
     existing_attendee_id: str = None,
+    shared_contact_deals: list = None,
 ) -> dict:
     """
     Execute one sync step: ensure contact and attendee exist, update attendee props,
     create associations (attendee→event with label, attendee→festival, attendee→sponsor),
     create/update deals and associate contact→deal and attendee→deal.
-    Returns {"contact_id", "attendee_id", "created_contact", "created_attendee", "actions", "errors"}.
+    Returns {"contact_id", "attendee_id", "created_contact", "created_attendee", "actions", "errors",
+             "contact_deals"} where contact_deals is the updated in-memory deal list to be threaded
+    into the next step — avoids re-fetching before HubSpot's association index propagates.
     """
     result = {
         "contact_id": None,
@@ -4632,6 +4635,8 @@ def _execute_sync_step(
         "created_attendee": False,
         "actions": [],
         "errors": [],
+        # Pass shared_contact_deals through unchanged by default; updated once we reach the deals section.
+        "contact_deals": shared_contact_deals,
     }
     if not email or not cvent_attendee_id:
         result["errors"].append("Missing email or cvent_attendee_id")
@@ -4793,7 +4798,15 @@ def _execute_sync_step(
     if (not result["contact_id"] and not result["attendee_id"]) or not deal_plan:
         return result
     company_id_for_contact = _hubspot_primary_company_for_contact(result["contact_id"]) if result["contact_id"] else ""
-    contact_deals = _hubspot_search_deals_for_contact(result["contact_id"])
+    # Use the shared in-memory list if the caller provided one — avoids re-fetching from HubSpot
+    # before its association index has propagated the deal created in the previous step (which is
+    # what caused duplicate deals when a festival sync has multiple transaction steps).
+    # On the very first step (shared_contact_deals is None) we fetch fresh from HubSpot.
+    if shared_contact_deals is not None:
+        contact_deals = shared_contact_deals
+    else:
+        contact_deals = _hubspot_search_deals_for_contact(result["contact_id"])
+    result["contact_deals"] = contact_deals
     for item in deal_plan:
         action = item.get("action", "create")
         event_id = str((item.get("event_id") or "")).strip()
@@ -4856,6 +4869,9 @@ def _execute_sync_step(
             continue
         deal_id = str(created["id"])
         result["actions"].append(f"Created deal for {event_name}")
+        # Immediately add to the in-memory list so the next transaction step's upsert can find
+        # this deal without waiting for HubSpot's association index to propagate.
+        contact_deals.append({"id": deal_id, "dealname": dealname, "amount": str(amount) if amount is not None else ""})
         if result["contact_id"]:
             _hubspot_put_association(
                 "contacts", result["contact_id"],
@@ -5517,6 +5533,10 @@ def hubspot_sync_attendee():
     step_results = []
     contact_id = None
     attendee_id = None
+    # Shared in-memory deal list threaded across transaction steps.
+    # Avoids re-fetching from HubSpot between steps before the association index propagates,
+    # which was the root cause of duplicate deals on multi-step festival syncs.
+    shared_contact_deals = None  # None on first step → fetch fresh; list on subsequent steps → reuse
 
     for k in range(1, num_steps + 1):
         is_phantom = (
@@ -5656,6 +5676,7 @@ def hubspot_sync_attendee():
             deal_plan=deal_plan_k,
             existing_contact_id=contact_id,
             existing_attendee_id=attendee_id,
+            shared_contact_deals=shared_contact_deals,
         )
         step_date = user_journey[k - 1].get("created", "") if k <= len(user_journey) else ""
         step_results.append({
@@ -5670,6 +5691,8 @@ def hubspot_sync_attendee():
         all_errors.extend(step_result.get("errors", []))
         contact_id = step_result.get("contact_id") or contact_id
         attendee_id = step_result.get("attendee_id") or attendee_id
+        # Thread the updated deal list to the next step.
+        shared_contact_deals = step_result.get("contact_deals") if step_result.get("contact_deals") is not None else shared_contact_deals
 
     report = {
         "message": "Sync completed (per transaction: 1 then 2 then …).",

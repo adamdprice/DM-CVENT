@@ -124,6 +124,9 @@ _sync_logs_max = 500
 _question_mappings_lock = threading.Lock()
 _question_mappings_mem: dict = {}  # fallback when no DATABASE_URL: (event_id, question_id) -> row dict
 
+_aim_lock = threading.Lock()
+_aim_mem: dict = {}  # fallback when no DATABASE_URL: (event_id, cvent_name) -> row dict
+
 _cvent_token_lock = threading.Lock()
 _cvent_token_cache: dict = {"token": None, "expires_at": 0.0}
 
@@ -938,6 +941,122 @@ def _question_mappings_delete(event_id: str, question_id: str) -> None:
         _question_mappings_mem.pop((event_id, question_id), None)
 
 
+# ---------------------------------------------------------------------------
+# Admission-item mappings: Cvent name → HubSpot cvent_admission_item enum value
+# ---------------------------------------------------------------------------
+
+def _aim_ensure_table(cur) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS admission_item_mappings (
+            event_id TEXT NOT NULL,
+            cvent_name TEXT NOT NULL,
+            hubspot_value TEXT NOT NULL,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (event_id, cvent_name)
+        )
+        """
+    )
+
+
+def _aim_get(event_id: str) -> list:
+    """Return all admission-item mappings for an event as a list of dicts."""
+    eid = str(event_id or "").strip()
+    if not eid:
+        return []
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    _aim_ensure_table(cur)
+                    cur.execute(
+                        "SELECT event_id, cvent_name, hubspot_value FROM admission_item_mappings WHERE event_id = %s ORDER BY cvent_name",
+                        (eid,),
+                    )
+                    return [
+                        {"event_id": r[0], "cvent_name": r[1], "hubspot_value": r[2]}
+                        for r in cur.fetchall()
+                    ]
+        except Exception as e:
+            app.logger.warning("aim_get db failed: %s", e)
+    with _aim_lock:
+        rows = [v for k, v in _aim_mem.items() if k[0] == eid]
+    return rows
+
+
+def _aim_upsert(event_id: str, cvent_name: str, hubspot_value: str) -> None:
+    eid = str(event_id or "").strip()
+    name = str(cvent_name or "").strip()
+    val = str(hubspot_value or "").strip()
+    if not eid or not name:
+        return
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    _aim_ensure_table(cur)
+                    cur.execute(
+                        """
+                        INSERT INTO admission_item_mappings (event_id, cvent_name, hubspot_value, updated_at)
+                        VALUES (%s, %s, %s, NOW())
+                        ON CONFLICT (event_id, cvent_name) DO UPDATE
+                        SET hubspot_value = EXCLUDED.hubspot_value, updated_at = NOW()
+                        """,
+                        (eid, name, val),
+                    )
+            return
+        except Exception as e:
+            app.logger.warning("aim_upsert db failed: %s", e)
+    with _aim_lock:
+        _aim_mem[(eid, name)] = {"event_id": eid, "cvent_name": name, "hubspot_value": val}
+
+
+def _aim_delete(event_id: str, cvent_name: str) -> None:
+    eid = str(event_id or "").strip()
+    name = str(cvent_name or "").strip()
+    if not eid or not name:
+        return
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    _aim_ensure_table(cur)
+                    cur.execute(
+                        "DELETE FROM admission_item_mappings WHERE event_id = %s AND cvent_name = %s",
+                        (eid, name),
+                    )
+            return
+        except Exception as e:
+            app.logger.warning("aim_delete db failed: %s", e)
+    with _aim_lock:
+        _aim_mem.pop((eid, name), None)
+
+
+def _aim_as_dict(event_id: str) -> dict:
+    """Return {cvent_name: hubspot_value} for an event — used at sync time."""
+    return {m["cvent_name"]: m["hubspot_value"] for m in _aim_get(event_id)}
+
+
+def _resolve_admission_item(raw_name: str, aim: dict) -> str:
+    """
+    Resolve a raw Cvent admission item name to the correct HubSpot enum value.
+    - If aim is empty (no mappings configured for this event): pass through raw name
+      for backward compatibility with events configured before this feature.
+    - If aim is non-empty and the name is mapped: return the HubSpot value.
+    - If aim is non-empty but the name is NOT in the map: return "" so the property
+      is omitted rather than sending an invalid enum value to HubSpot.
+    """
+    raw = (raw_name or "").strip()
+    if not raw:
+        return ""
+    if not aim:
+        return raw
+    return aim.get(raw, "")
+
+
 def _send_otp_email(to_email: str, code: str) -> None:
     import ssl
     import smtplib
@@ -1218,6 +1337,55 @@ def api_set_question_mapping():
     return jsonify({"ok": True})
 
 
+@app.route("/api/events/<cvent_event_id>/admission-item-mappings", methods=["GET"])
+def api_get_admission_item_mappings(cvent_event_id):
+    eid = str(cvent_event_id or "").strip()
+    return jsonify({"mappings": _aim_get(eid)})
+
+
+@app.route("/api/events/<cvent_event_id>/admission-item-mappings", methods=["POST"])
+def api_set_admission_item_mapping(cvent_event_id):
+    eid = str(cvent_event_id or "").strip()
+    if not eid:
+        return jsonify({"error": "event_id required"}), 400
+    data = request.get_json() or {}
+    cvent_name = (data.get("cvent_name") or "").strip()
+    if not cvent_name:
+        return jsonify({"error": "cvent_name required"}), 400
+    if data.get("clear"):
+        _aim_delete(eid, cvent_name)
+        return jsonify({"ok": True})
+    hubspot_value = (data.get("hubspot_value") or "").strip()
+    if not hubspot_value:
+        return jsonify({"error": "hubspot_value required"}), 400
+    _aim_upsert(eid, cvent_name, hubspot_value)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/hubspot/admission-item-options")
+def api_hubspot_admission_item_options():
+    """Return existing enum options for cvent_admission_item from the deal object."""
+    if not HUBSPOT_TOKEN:
+        return jsonify({"error": "HubSpot token not configured"}), 500
+    try:
+        r = requests.get(
+            "https://api.hubapi.com/crm/v3/properties/deals/cvent_admission_item",
+            headers={"Authorization": f"Bearer {HUBSPOT_TOKEN}"},
+            timeout=10,
+        )
+        if not r.ok:
+            return jsonify({"error": f"HubSpot error {r.status_code}"}), 502
+        options = [
+            {"value": o["value"], "label": o.get("label") or o["value"]}
+            for o in r.json().get("options", [])
+            if not o.get("hidden") and o.get("value")
+        ]
+        options.sort(key=lambda o: o["label"])
+        return jsonify({"options": options})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+
 @app.route("/api/sync-status")
 def sync_status():
     cvent_attendee_id = (request.args.get("cvent_attendee_id") or "").strip()
@@ -1334,6 +1502,21 @@ def api_set_event_scheduled_sync(cvent_event_id):
     body = request.get_json() or {}
     enabled = bool(body.get("enabled", False))
     event_name = str(body.get("event_name") or "").strip()
+
+    if enabled:
+        # Guard: all Cvent admission item names sent by the client must have a mapping.
+        admission_item_names = body.get("admission_item_names") or []
+        if isinstance(admission_item_names, list) and admission_item_names:
+            aim = _aim_as_dict(eid)
+            unmapped = [n for n in admission_item_names if n and n not in aim]
+            if unmapped:
+                return jsonify({
+                    "error": "Cannot enable sync — the following Cvent admission items have no HubSpot mapping: "
+                             + ", ".join(f'"{n}"' for n in sorted(unmapped))
+                             + ". Configure all mappings in HubSpot Setup before enabling.",
+                    "unmapped": unmapped,
+                }), 400
+
     _ss_upsert(eid, event_name, enabled)
     if enabled:
         _start_scheduler_thread()
@@ -1413,6 +1596,7 @@ def _build_deal_plan(
     training: bool = False,
     quantity_item_product_mappings: dict = None,
     currency: str = "",
+    admission_item_mappings: dict = None,
 ) -> dict:
     """
     Determine if deal(s) would be created and build plan (1 deal per event, revenue split when multiple).
@@ -1512,7 +1696,7 @@ def _build_deal_plan(
                     "dealstage": deal_stage,
                     "company_name": (attendee.get("company_name") or "").strip(),
                     "country": (attendee.get("attendee_country") or "").strip(),
-                    "cvent_admission_item": (attendee.get("admission_item") or "").strip(),
+                    "cvent_admission_item": _resolve_admission_item(attendee.get("admission_item") or "", admission_item_mappings or {}),
                     "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
                     "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
                     "cvent_reference_id": reference_id,
@@ -1616,7 +1800,7 @@ def _build_deal_plan(
                 "dealstage": deal_stage,
                 "company_name": (attendee.get("company_name") or "").strip(),
                 "country": (attendee.get("attendee_country") or "").strip(),
-                "cvent_admission_item": (attendee.get("admission_item") or "").strip(),
+                "cvent_admission_item": _resolve_admission_item(attendee.get("admission_item") or "", admission_item_mappings or {}),
                 "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
                 "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
                 "cvent_reference_id": reference_id,
@@ -1727,7 +1911,7 @@ def _build_deal_plan(
                     "dealstage": deal_stage,
                     "company_name": (attendee.get("company_name") or "").strip(),
                     "country": (attendee.get("attendee_country") or "").strip(),
-                    "cvent_admission_item": (attendee.get("admission_item") or "").strip(),
+                    "cvent_admission_item": _resolve_admission_item(attendee.get("admission_item") or "", admission_item_mappings or {}),
                     "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
                     "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
                     "cvent_reference_id": reference_id,
@@ -1761,7 +1945,7 @@ def _build_deal_plan(
                     "dealstage": deal_stage,
                     "company_name": (attendee.get("company_name") or "").strip(),
                     "country": (attendee.get("attendee_country") or "").strip(),
-                    "cvent_admission_item": (attendee.get("admission_item") or "").strip(),
+                    "cvent_admission_item": _resolve_admission_item(attendee.get("admission_item") or "", admission_item_mappings or {}),
                     "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
                     "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
                     "cvent_reference_id": reference_id,
@@ -1865,7 +2049,7 @@ def _build_deal_plan(
                     "dealstage": deal_stage,
                     "company_name": (attendee.get("company_name") or "").strip(),
                     "country": (attendee.get("attendee_country") or "").strip(),
-                    "cvent_admission_item": (attendee.get("admission_item") or "").strip(),
+                    "cvent_admission_item": _resolve_admission_item(attendee.get("admission_item") or "", admission_item_mappings or {}),
                     "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
                     "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
                     "cvent_reference_id": reference_id,
@@ -4482,7 +4666,7 @@ def _admission_from_journey_entry(entry: dict) -> tuple:
     return (name, aid)
 
 
-def _build_attendee_properties(attendee: dict, order: dict, admission_item_override: str = None, question_mappings: list = None) -> dict:
+def _build_attendee_properties(attendee: dict, order: dict, admission_item_override: str = None, question_mappings: list = None, admission_item_mappings: dict = None) -> dict:
     """
     Build HubSpot attendee properties matching workflow step 6 (Cvent API TEST).
     Returns dict of property name -> value (excluding empty/null).
@@ -4547,9 +4731,9 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
 
     # Use only transaction-derived admission item when override is provided (even if ""); never attendee current for steps
     if admission_item_override is not None:
-        cvent_admission_item = (admission_item_override or "").strip()
+        cvent_admission_item = _resolve_admission_item(admission_item_override, admission_item_mappings or {})
     else:
-        cvent_admission_item = (attendee.get("admission_item") or "").strip()
+        cvent_admission_item = _resolve_admission_item(attendee.get("admission_item") or "", admission_item_mappings or {})
 
     # Discount codes: join all codes from the order as a semicolon-separated string
     discount_codes_list = order.get("discount_codes") or []
@@ -4934,6 +5118,8 @@ def hubspot_sync_attendee():
     quantity_item_product_mappings = data.get("quantity_item_product_mappings") or {}
     if not isinstance(quantity_item_product_mappings, dict):
         quantity_item_product_mappings = {}
+    # Load admission-item mappings for this event (resolves Cvent names → HubSpot enum values).
+    admission_item_mappings = _aim_as_dict(cvent_event_id)
     if not cvent_attendee_id or not cvent_event_id:
         err = "cvent_attendee_id and cvent_event_id are required"
         _log_sync("failed", summary=err, errors=[err], actions=[])
@@ -5002,7 +5188,7 @@ def hubspot_sync_attendee():
     last_name = (attendee.get("last_name") or "").strip()
     event_question_mappings = _question_mappings_get(cvent_event_id)
     event_currency = _ss_get_currency(cvent_event_id)
-    attendee_properties_full = _build_attendee_properties(attendee, order, question_mappings=event_question_mappings)
+    attendee_properties_full = _build_attendee_properties(attendee, order, question_mappings=event_question_mappings, admission_item_mappings=admission_item_mappings)
 
     admission_item_id = (attendee.get("admission_item_id") or "").strip()
     assoc_result = _resolve_association_label_and_events(
@@ -5119,6 +5305,7 @@ def hubspot_sync_attendee():
             training=True,
             quantity_item_product_mappings=quantity_item_product_mappings,
             currency=event_currency,
+            admission_item_mappings=admission_item_mappings,
         )
         speaker_labels = deal_result.get("speaker_upgrade_event_labels")
         if speaker_labels:
@@ -5344,6 +5531,7 @@ def hubspot_sync_attendee():
                 training=True,
                 quantity_item_product_mappings=quantity_item_product_mappings,
                 currency=event_currency,
+                admission_item_mappings=admission_item_mappings,
             )
             speaker_labels_k = deal_result_k.get("speaker_upgrade_event_labels")
             if speaker_labels_k:
@@ -5365,7 +5553,8 @@ def hubspot_sync_attendee():
                         item["simulated_from_step_1"] = True
             # Use only transaction-derived admission item for this step (never fall back to attendee current)
             attendee_properties_k = _build_attendee_properties(
-                attendee, order_k, admission_item_override=admission_item_name_k, question_mappings=event_question_mappings
+                attendee, order_k, admission_item_override=admission_item_name_k, question_mappings=event_question_mappings,
+                admission_item_mappings=admission_item_mappings,
             )
             step_report = {
                 "message": report["message"],
@@ -5639,7 +5828,8 @@ def hubspot_sync_attendee():
         fs_associations_step = list(assoc_result_k.get("fs_associations", []))
         # Use only transaction-derived admission item for this step (never fall back to attendee current)
         attendee_properties_k = _build_attendee_properties(
-            attendee, order_k, admission_item_override=admission_item_name_k, question_mappings=event_question_mappings
+            attendee, order_k, admission_item_override=admission_item_name_k, question_mappings=event_question_mappings,
+            admission_item_mappings=admission_item_mappings,
         )
         attendee_exists_k = k > 1
         deal_result_k = _build_deal_plan(
@@ -5651,6 +5841,7 @@ def hubspot_sync_attendee():
             training=False,
             quantity_item_product_mappings=quantity_item_product_mappings,
             currency=event_currency,
+            admission_item_mappings=admission_item_mappings,
         )
         speaker_labels_k = deal_result_k.get("speaker_upgrade_event_labels")
         if speaker_labels_k:

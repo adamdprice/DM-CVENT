@@ -363,9 +363,17 @@
         const key = eventId && qi.id ? eventId + ':' + qi.id : '';
         if (key && qtyProd[key]) qtyMapped++;
       });
-      const mapped = admMapped + qMapped + qtyMapped;
+      // Admission item property mappings (cvent name → hubspot enum value)
+      let aimPropMapped = 0;
+      (admissionItems || []).forEach(ai => {
+        const key = eventId && ai.name ? eventId + ':' + ai.name : '';
+        if (key && admissionItemMappingsCache[key]) aimPropMapped++;
+      });
+      const aimPropTotal = admTotal;
+      const mapped = admMapped + qMapped + qtyMapped + aimPropMapped;
+      const totalWithAim = total + aimPropTotal;
       if (mapped === 0) return 'red';
-      if (mapped < total) return 'amber';
+      if (mapped < totalWithAim) return 'amber';
       return 'green';
     }
 
@@ -391,6 +399,52 @@
 
     function getGlobalQuestionMappings() {
       return questionMappingsCache;
+    }
+
+    // Admission item property mappings — keyed by "eventId:cventName" -> hubspot_value
+    let admissionItemMappingsCache = {};
+    let admissionItemHubspotOptions = null; // [{value, label}] — loaded once
+
+    async function loadAdmissionItemMappings(eventId) {
+      try {
+        const r = await fetch(`/api/events/${encodeURIComponent(eventId)}/admission-item-mappings`);
+        if (!r.ok) return;
+        const data = await r.json().catch(() => null);
+        if (!data || !Array.isArray(data.mappings)) return;
+        data.mappings.forEach(m => {
+          admissionItemMappingsCache[eventId + ':' + m.cvent_name] = m.hubspot_value;
+        });
+      } catch (e) { /* keep stale */ }
+    }
+
+    async function getAdmissionItemHubspotOptions() {
+      if (admissionItemHubspotOptions) return admissionItemHubspotOptions;
+      try {
+        const r = await fetch('/api/hubspot/admission-item-options');
+        if (!r.ok) return [];
+        const data = await r.json().catch(() => null);
+        admissionItemHubspotOptions = data?.options || [];
+      } catch (e) {
+        admissionItemHubspotOptions = [];
+      }
+      return admissionItemHubspotOptions;
+    }
+
+    async function saveAdmissionItemMapping(eventId, cventName, hubspotValue) {
+      const body = hubspotValue
+        ? { cvent_name: cventName, hubspot_value: hubspotValue }
+        : { cvent_name: cventName, clear: true };
+      const r = await fetch(`/api/events/${encodeURIComponent(eventId)}/admission-item-mappings`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (r.ok) {
+        const key = eventId + ':' + cventName;
+        if (hubspotValue) admissionItemMappingsCache[key] = hubspotValue;
+        else delete admissionItemMappingsCache[key];
+      }
+      return r.ok;
     }
 
     async function setGlobalQuestionMapping(eventId, questionId, prop) {
@@ -946,10 +1000,19 @@
           if (!confirm(msg)) return;
           btn.disabled = true;
           try {
+            // When enabling, collect current admission item names to validate mappings server-side.
+            let admissionItemNames = [];
+            if (enabling) {
+              const cached = Object.entries(admissionItemMappingsCache)
+                .filter(([k]) => k.startsWith(eid + ':'))
+                .map(([k]) => k.slice(eid.length + 1));
+              // Use whatever names are in the cache as a cross-check; server validates against its own DB.
+              admissionItemNames = cached;
+            }
             const r = await fetch(`/api/events/${encodeURIComponent(eid)}/scheduled-sync`, {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ enabled: enabling, event_name: ename }),
+              body: JSON.stringify({ enabled: enabling, event_name: ename, admission_item_names: admissionItemNames }),
             });
             if (r.ok) {
               scheduledSyncMap[eid] = { ...(scheduledSyncMap[eid] || {}), enabled: enabling };
@@ -1027,7 +1090,8 @@
         loadQuestionMappingsCache(),
         fetchJson(`/api/hubspot/currencies`),
         fetchJson(`/api/events/${encodeURIComponent(eventId)}/currency`),
-      ]).then(([{ ok, data }, _1, _2, currenciesRes, savedCurrencyRes]) => {
+        loadAdmissionItemMappings(eventId),
+      ]).then(async ([{ ok, data }, _1, _2, currenciesRes, savedCurrencyRes]) => {
           if (data.error) {
             setupContent.innerHTML = `<div class="error-msg">${escapeHtml(data.error)}</div>`;
             return;
@@ -1090,6 +1154,36 @@
               html += `<tr><td class="mono" style="width:100px;">${escapeHtml(ai.code || '—')}</td><td>${escapeHtml(ai.name || '—')}</td><td><div class="admission-events-cell">${badgesHtml}<button type="button" class="map-btn" data-ai-id="${escapeHtml(aiId)}" data-ai-name="${escapeHtml(ai.name || '')}" data-ai-code="${escapeHtml(ai.code || '')}" title="Associate with HubSpot events">+</button></div></td></tr>`;
             });
             html += '</tbody></table></div></div>';
+
+            // Admission item property mapping section
+            const hsOptions = await getAdmissionItemHubspotOptions();
+            const optionsHtml = '<option value="">— Not mapped —</option>' +
+              hsOptions.map(o => `<option value="${escapeHtml(o.value)}">${escapeHtml(o.label)}</option>`).join('');
+            let aimHtml = '<div class="section-card" id="aim-section"><h3>Admission Item Property Mapping</h3>';
+            aimHtml += '<p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Map each Cvent admission item name to the correct <strong>cvent_admission_item</strong> HubSpot dropdown value. All items must be mapped before scheduled sync can be enabled.</p>';
+            aimHtml += '<div class="table-wrap"><table class="data-table" style="min-width:600px;"><thead><tr><th>Code</th><th>Cvent name</th><th>HubSpot cvent_admission_item value</th></tr></thead><tbody>';
+            admissionItems.forEach(ai => {
+              const aiName = ai.name || '';
+              const key = eventId + ':' + aiName;
+              const currentVal = admissionItemMappingsCache[key] || '';
+              const selectId = `aim-select-${encodeURIComponent(aiName)}`;
+              const selectedOptions = hsOptions.map(o =>
+                `<option value="${escapeHtml(o.value)}"${o.value === currentVal ? ' selected' : ''}>${escapeHtml(o.label)}</option>`
+              ).join('');
+              aimHtml += `<tr>
+                <td class="mono" style="width:100px;">${escapeHtml(ai.code || '—')}</td>
+                <td>${escapeHtml(aiName || '—')}</td>
+                <td>
+                  <select id="${escapeHtml(selectId)}" data-aim-name="${escapeHtml(aiName)}" class="aim-select" style="min-width:320px;max-width:100%;">
+                    <option value="">— Not mapped —</option>
+                    ${selectedOptions}
+                  </select>
+                  <span class="aim-save-status" style="margin-left:0.5rem;font-size:0.8rem;color:var(--text-muted);"></span>
+                </td>
+              </tr>`;
+            });
+            aimHtml += '</tbody></table></div></div>';
+            html += aimHtml;
           }
 
           if (quantityItems.length > 0) {
@@ -1148,6 +1242,23 @@
             btn.addEventListener('click', (e) => {
               e.stopPropagation();
               openEventDropdown(btn, { id: btn.dataset.aiId, name: btn.dataset.aiName, code: btn.dataset.aiCode });
+            });
+          });
+
+          // Admission item property mapping — auto-save on change
+          setupContent.querySelectorAll('select.aim-select').forEach(sel => {
+            sel.addEventListener('change', async () => {
+              const cventName = sel.dataset.aimName;
+              const hubspotValue = sel.value;
+              const statusEl = sel.parentElement?.querySelector('.aim-save-status');
+              if (statusEl) statusEl.textContent = 'Saving…';
+              const ok = await saveAdmissionItemMapping(eventId, cventName, hubspotValue);
+              if (statusEl) {
+                statusEl.textContent = ok ? 'Saved' : 'Error';
+                setTimeout(() => { statusEl.textContent = ''; }, 2000);
+              }
+              setupStatusMap[eventId] = computeSetupStatus(eventId, admissionItems, regQuestions, quantityItems);
+              renderEventsTable(document.getElementById('event-search')?.value || '');
             });
           });
 

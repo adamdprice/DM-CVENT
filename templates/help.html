@@ -176,6 +176,7 @@
     <ul>
       <li><a href="#events-home">Events home</a></li>
       <li><a href="#event-setup">Event setup</a></li>
+      <li><a href="#admission-item-mapping">Admission item mapping</a></li>
       <li><a href="#attendees">Attendees list</a></li>
       <li><a href="#attendee-detail">Attendee detail</a></li>
       <li><a href="#question-mappings">Question mappings</a></li>
@@ -303,14 +304,7 @@
     <h3>Events table</h3>
     <ul>
       <li><strong>Event name / Code / Start date</strong> — pulled live from Cvent each page load</li>
-      <li><strong>Setup status dot</strong> (coloured circle button) — indicates how complete the HubSpot setup is for this event. Click it to open the <a href="#event-setup">Event Setup</a> screen.
-        <ul>
-          <li><span class="ui-dot green" style="vertical-align:middle"></span> <strong>Green</strong> — admission items mapped, questions mapped</li>
-          <li><span class="ui-dot amber" style="vertical-align:middle"></span> <strong>Amber</strong> — partial setup (some mappings missing)</li>
-          <li><span class="ui-dot red" style="vertical-align:middle"></span> <strong>Red</strong> — no mappings configured</li>
-          <li><span class="ui-dot grey" style="vertical-align:middle"></span> <strong>Grey</strong> — no attendee data yet</li>
-        </ul>
-      </li>
+      <li><strong>Setup status dot</strong> (coloured circle button) — indicates how complete the HubSpot setup is for this event. Click it to open the <a href="#event-setup">Event Setup</a> screen. See <a href="#admission-item-mapping">Admission item mapping</a> for what each colour means.</li>
       <li><strong>Attendees button</strong> (👥) — opens the <a href="#attendees">Attendees list</a> for that event</li>
       <li><strong>Auto-sync toggle</strong> — enables/disables the 30-minute <a href="#scheduled-sync">scheduled sync</a> for the event</li>
     </ul>
@@ -366,6 +360,72 @@
       <span class="callout-icon">⚠️</span>
       <div>If admission items are not mapped, the sync cannot determine which HubSpot event to link the attendee to, and <strong>no deal will be created</strong>. Always map admission items before running a live sync.</div>
     </div>
+
+    <!-- ── ADMISSION ITEM MAPPING ─────────────────────────────────────────────── -->
+    <h2 id="admission-item-mapping">Admission item property mapping</h2>
+    <p>Directly below the Admission Items table in Event Setup is a second section called <strong>Admission Item Property Mapping</strong>. This is separate from — and in addition to — the event association mapping above.</p>
+
+    <p>Cvent returns admission item names in its API that may differ from the values in HubSpot's <code>cvent_admission_item</code> dropdown property. For example, Cvent's API returns <code>"LF Dealmakers Europe"</code>, but the HubSpot property's dropdown contains <code>"SINGLE EVENT TICKET: 3rd Annual LF Dealmakers Europe"</code>. Without a mapping, HubSpot would reject the value and silently fail to create the attendee record and deal.</p>
+
+    <div class="screen-mock">
+      <div class="screen-mock-bar">
+        <span class="screen-mock-dot" style="background:#ff5f57"></span>
+        <span class="screen-mock-dot" style="background:#febc2e"></span>
+        <span class="screen-mock-dot" style="background:#28c840"></span>
+        <span class="screen-mock-url">Event Setup — Admission Item Property Mapping</span>
+      </div>
+      <div class="screen-mock-body">
+        <div style="font-size:0.78rem;font-weight:600;margin-bottom:0.5rem;">Admission Item Property Mapping</div>
+        <div style="font-size:0.78rem;color:#6f7f8d;margin-bottom:0.75rem;">Map each Cvent admission item name to the correct <code>cvent_admission_item</code> HubSpot dropdown value. All items must be mapped before scheduled sync can be enabled.</div>
+        <table class="ui-table">
+          <thead><tr><th>Code</th><th>Cvent name</th><th>HubSpot cvent_admission_item value</th></tr></thead>
+          <tbody>
+            <tr>
+              <td class="mono" style="font-size:0.75rem;">LF</td>
+              <td>LF Dealmakers Europe</td>
+              <td><select class="ui-input" style="min-width:320px;font-size:0.78rem;"><option>SINGLE EVENT TICKET: 3rd Annual LF Dealmakers Europe</option></select></td>
+            </tr>
+            <tr>
+              <td class="mono" style="font-size:0.75rem;">IP</td>
+              <td>IP Dealmakers Europe</td>
+              <td><select class="ui-input" style="min-width:320px;font-size:0.78rem;"><option>SINGLE EVENT TICKET: 3rd Annual IP Dealmakers Europe</option></select></td>
+            </tr>
+            <tr>
+              <td class="mono" style="font-size:0.75rem;">ALL</td>
+              <td>ALL ACCESS TICKET</td>
+              <td><select class="ui-input" style="min-width:320px;font-size:0.78rem;"><option>ALL ACCESS TICKET: 3rd Annual LF Dealmakers Europe &amp; 3rd Annual IP Dealmakers Europe</option></select></td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <h3>How to configure</h3>
+    <ol>
+      <li>Open <strong>HubSpot Setup</strong> for the event (click the setup status dot)</li>
+      <li>Scroll to <strong>Admission Item Property Mapping</strong></li>
+      <li>For each Cvent admission item, select the matching value from the <code>cvent_admission_item</code> dropdown — only existing HubSpot enum values are shown; you cannot create new ones here</li>
+      <li>Each selection saves automatically — no save button needed</li>
+    </ol>
+
+    <div class="callout warn">
+      <span class="callout-icon">⚠️</span>
+      <div><strong>All admission items must be mapped before enabling scheduled sync.</strong> If any are unmapped, the auto-sync toggle will be blocked and will display a warning listing the specific items that need configuring.</div>
+    </div>
+
+    <div class="callout info">
+      <span class="callout-icon">ℹ️</span>
+      <div>These mappings are stored server-side and apply to <em>all</em> sync modes — manual, Sync All, and scheduled. If an admission item arrives from Cvent that has no mapping configured, the <code>cvent_admission_item</code> property is simply omitted from the record rather than sending an invalid value.</div>
+    </div>
+
+    <h3>Setup status dot</h3>
+    <p>The coloured circle on the events table reflects the completeness of <em>all</em> setup across admission item event associations, admission item property mappings, quantity item mappings, and question mappings combined:</p>
+    <ul>
+      <li><span class="ui-dot green" style="vertical-align:middle"></span> <strong>Green</strong> — everything mapped</li>
+      <li><span class="ui-dot amber" style="vertical-align:middle"></span> <strong>Amber</strong> — partially configured (some mappings missing)</li>
+      <li><span class="ui-dot red" style="vertical-align:middle"></span> <strong>Red</strong> — nothing mapped yet</li>
+      <li><span class="ui-dot grey" style="vertical-align:middle"></span> <strong>Grey</strong> — no attendee data loaded yet</li>
+    </ul>
 
     <h3>Quantity items</h3>
     <p>Cvent <strong>quantity items</strong> are add-on purchases (e.g. workshop fees, gala dinner tickets). You can optionally map each quantity item to a <strong>HubSpot Product</strong> — when mapped, the deal created for that quantity item will be associated with that product in HubSpot.</p>
@@ -580,6 +640,11 @@
       <div>Scheduled syncs require a PostgreSQL database (<code>DATABASE_URL</code> environment variable) to persist state. Without it, the toggle will appear to work but the schedule won't survive a server restart.</div>
     </div>
 
+    <div class="callout warn">
+      <span class="callout-icon">⚠️</span>
+      <div><strong>Before enabling scheduled sync</strong>, all Cvent admission items for the event must have an <a href="#admission-item-mapping">admission item property mapping</a> configured. If any are missing, the toggle will be blocked with a warning listing the unmapped items.</div>
+    </div>
+
     <div class="callout tip">
       <span class="callout-icon">💡</span>
       <div>Quantity item → HubSpot Product mappings (configured in Event Setup) only apply to manual/Sync All runs from the browser. Scheduled syncs do not apply these mappings.</div>
@@ -630,7 +695,7 @@
         <tr><td>cvent_attendee_id</td><td>Cvent</td><td>Unique Cvent attendee GUID</td></tr>
         <tr><td>cvent_reg_status</td><td>Cvent</td><td>Registration status (Accepted, Cancelled, etc.)</td></tr>
         <tr><td>cvent_registration_type</td><td>Cvent</td><td>Registration type (e.g. Paying Delegate)</td></tr>
-        <tr><td>cvent_admission_item</td><td>Cvent</td><td>Name of the admission item purchased</td></tr>
+        <tr><td>cvent_admission_item</td><td>Cvent + mapping</td><td>Admission item name, resolved via the per-event admission item property mapping to a valid HubSpot dropdown value</td></tr>
         <tr><td>cvent_confirmation_number</td><td>Cvent</td><td>Cvent confirmation number</td></tr>
         <tr><td>cvent_invoice_number</td><td>Cvent</td><td>Order invoice number</td></tr>
         <tr><td>cvent_reference_id</td><td>Cvent</td><td>Order reference ID</td></tr>
@@ -662,7 +727,7 @@
         <tr><td>cvent_tax_amount</td><td>VAT/tax allocated to this deal</td></tr>
         <tr><td>company_name</td><td>Attendee's company name</td></tr>
         <tr><td>country</td><td>Attendee's country</td></tr>
-        <tr><td>cvent_admission_item</td><td>Admission item name</td></tr>
+        <tr><td>cvent_admission_item</td><td>Admission item name, resolved via the per-event <a href="#admission-item-mapping">admission item property mapping</a></td></tr>
         <tr><td>cvent_cancelled</td><td>"true" if registration is cancelled</td></tr>
         <tr><td>cvent_invoice_number</td><td>Order invoice number</td></tr>
         <tr><td>cvent_reference_id</td><td>Order reference ID</td></tr>

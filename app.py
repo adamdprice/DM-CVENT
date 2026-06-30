@@ -4507,6 +4507,25 @@ def _hubspot_create_contact(properties: dict) -> dict:
         return {}
 
 
+def _hubspot_update_contact(contact_id: str, properties: dict) -> bool:
+    """Update HubSpot contact properties. Returns True on success."""
+    if not HUBSPOT_TOKEN or not contact_id or not properties:
+        return False
+    try:
+        r = requests.patch(
+            f"https://api.hubapi.com/crm/v3/objects/contacts/{contact_id}",
+            headers={
+                "Authorization": f"Bearer {HUBSPOT_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json={"properties": {k: str(v) for k, v in properties.items() if v not in ("", None)}},
+            timeout=15,
+        )
+        return r.ok
+    except Exception:
+        return False
+
+
 def _hubspot_create_attendee(properties: dict) -> dict:
     """Create a HubSpot attendee (custom object). Returns created object or empty dict on failure."""
     if not HUBSPOT_TOKEN or not properties:
@@ -5049,6 +5068,20 @@ def _execute_sync_step(
         if contact:
             result["contact_id"] = str(contact.get("id", ""))
             result["actions"].append("Contact found in HubSpot")
+            # Refresh name, company, and job title from Cvent on every re-sync.
+            contact_update = {
+                k: v for k, v in {
+                    "firstname": first_name,
+                    "lastname": last_name,
+                    "company": (attendee_properties or {}).get("company_name", ""),
+                    "jobtitle": (attendee_properties or {}).get("job_title", ""),
+                }.items() if v not in ("", None)
+            }
+            if contact_update:
+                if _hubspot_update_contact(result["contact_id"], contact_update):
+                    result["actions"].append("Updated contact name/company/job title from Cvent")
+                else:
+                    result["errors"].append("Failed to update contact properties")
         else:
             created = _hubspot_create_contact({
                 "email": email,

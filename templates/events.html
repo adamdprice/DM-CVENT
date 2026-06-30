@@ -1015,6 +1015,11 @@
           const ename = btn.dataset.name;
           const ss = scheduledSyncMap[eid] || {};
           const enabling = !ss.enabled;
+          if (enabling && setupStatusMap[eid] !== 'green') {
+            const statusLabel = setupStatusMap[eid] === 'loading' ? 'not yet loaded' : (setupStatusMap[eid] || 'incomplete');
+            alert(`Cannot enable scheduled sync — event setup is ${statusLabel}.\n\nOpen the setup panel (⚙) for this event and ensure the status dot turns green before enabling. All admission item mappings, question mappings (or "Do not map"), and quantity item mappings must be complete.`);
+            return;
+          }
           const msg = enabling
             ? `Enable scheduled auto-sync for "${ename}"?\n\nThis will go live immediately and sync attendees to HubSpot every 30 minutes.\n\n• First run: all attendees will be synced (may take a while for large events)\n• Subsequent runs: only attendees updated in Cvent since their last sync will be processed\n• If a sync is running when the next interval is due, it will wait until the current sync finishes\n\nEnable scheduled sync?`
             : `Disable scheduled auto-sync for "${ename}"?\n\nNo further automatic syncs will run. You can re-enable at any time.`;

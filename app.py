@@ -5009,7 +5009,7 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
         for qm in question_mappings:
             qid = str(qm.get("question_id") or "").strip()
             prop = str(qm.get("hubspot_property") or "").strip()
-            if not qid or not prop:
+            if not qid or not prop or prop == '__do_not_map__':
                 continue
             for ans in answers:
                 if str(ans.get("question_id") or "") == qid:

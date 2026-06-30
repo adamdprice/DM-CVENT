@@ -479,6 +479,13 @@
       loadQuestionMappingsCache();
     }
 
+    function mappedLabelSpan(mapping, mappedLabel) {
+      if (mapping && mapping.name === '__do_not_map__') {
+        return '<span class="mapped-label" style="font-style:italic;color:var(--text-muted);">Do not map</span>';
+      }
+      return `<span class="mapped-label">${escapeHtml(mappedLabel || 'Not mapped')}</span>`;
+    }
+
     const GLOBAL_QTY_PRODUCT_KEY = 'cvent_quantity_item_hubspot_products';
     function getGlobalQuantityProductMappings() {
       try {
@@ -542,9 +549,11 @@
       root.style.cssText = 'position:fixed;inset:0;z-index:99;';
       root.addEventListener('click', (e) => { if (e.target === root) root.remove(); });
       const rect = btn.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const dropdownTop = spaceBelow < 240 ? Math.max(4, rect.top - 320) : rect.bottom + 4;
       const dd = document.createElement('div');
       dd.className = 'event-dropdown';
-      dd.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;`;
+      dd.style.cssText = `position:fixed;left:${rect.left}px;top:${dropdownTop}px;`;
       dd.addEventListener('click', (e) => e.stopPropagation());
       const searchInput = document.createElement('input');
       searchInput.type = 'text';
@@ -639,9 +648,11 @@
       root.style.cssText = 'position:fixed;inset:0;z-index:99;';
       root.addEventListener('click', (e) => { if (e.target === root) root.remove(); });
       const rect = btn.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const dropdownTop = spaceBelow < 240 ? Math.max(4, rect.top - 320) : rect.bottom + 4;
       const dd = document.createElement('div');
       dd.className = 'map-dropdown';
-      dd.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;`;
+      dd.style.cssText = `position:fixed;left:${rect.left}px;top:${dropdownTop}px;`;
       dd.addEventListener('click', (e) => e.stopPropagation());
       const searchInput = document.createElement('input');
       searchInput.type = 'text';
@@ -652,12 +663,15 @@
         const q = (filter || '').toLowerCase();
         const filtered = hubspotProperties.filter(p => !q || (p.label || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q));
         ul.innerHTML = '<li data-clear="1" style="color:var(--text-muted);font-style:italic;">— Clear mapping</li>' +
+          '<li data-do-not-map="1" style="color:var(--text-muted);font-style:italic;">— Do not map</li>' +
           filtered.map(p => `<li data-name="${escapeHtml(p.name)}" data-label="${escapeHtml(p.label || p.name)}">${escapeHtml(p.label || p.name)}</li>`).join('');
         ul.querySelectorAll('li').forEach(li => {
           li.addEventListener('click', async () => {
             try {
               if (li.dataset.clear) {
                 await setGlobalQuestionMapping(eventId, questionId, null);
+              } else if (li.dataset.doNotMap) {
+                await setGlobalQuestionMapping(eventId, questionId, { name: '__do_not_map__', label: 'Do not map' });
               } else {
                 await setGlobalQuestionMapping(eventId, questionId, { name: li.dataset.name, label: li.dataset.label });
               }
@@ -723,9 +737,11 @@
       root.style.cssText = 'position:fixed;inset:0;z-index:99;';
       root.addEventListener('click', (e) => { if (e.target === root) root.remove(); });
       const rect = btn.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const dropdownTop = spaceBelow < 240 ? Math.max(4, rect.top - 320) : rect.bottom + 4;
       const dd = document.createElement('div');
       dd.className = 'map-dropdown';
-      dd.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;min-width:320px;max-width:min(480px,90vw);`;
+      dd.style.cssText = `position:fixed;left:${rect.left}px;top:${dropdownTop}px;min-width:320px;max-width:min(480px,90vw);`;
       dd.addEventListener('click', (e) => e.stopPropagation());
       const searchInput = document.createElement('input');
       searchInput.type = 'text';
@@ -840,7 +856,7 @@
           const mapKey = selectedEventId && qid ? selectedEventId + ':' + qid : '';
           const mapping = mapKey ? mappings[mapKey] : null;
           const mappedLabel = mapping ? mapping.label : '';
-          html += `<tr><td style="width:280px;"><div style="font-size:0.9rem;word-break:break-word;">${escapeHtml(qtext)}</div><div class="mono" style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">${escapeHtml(qid)}</div></td><td class="mono" style="width:180px;font-size:0.8rem;">${escapeHtml(qcode)}</td><td><div class="map-cell"><button type="button" class="map-btn ${mapping ? 'mapped' : ''}" data-qid="${escapeHtml(qid)}" data-event-id="${escapeHtml(selectedEventId)}" title="Map to HubSpot property">+</button><span class="mapped-label">${escapeHtml(mappedLabel || 'Not mapped')}</span></div></td></tr>`;
+          html += `<tr><td style="width:280px;"><div style="font-size:0.9rem;word-break:break-word;">${escapeHtml(qtext)}</div><div class="mono" style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">${escapeHtml(qid)}</div></td><td class="mono" style="width:180px;font-size:0.8rem;">${escapeHtml(qcode)}</td><td><div class="map-cell"><button type="button" class="map-btn ${mapping ? 'mapped' : ''}" data-qid="${escapeHtml(qid)}" data-event-id="${escapeHtml(selectedEventId)}" title="Map to HubSpot property">+</button>${mappedLabelSpan(mapping, mappedLabel)}</div></td></tr>`;
         });
         html += '</tbody></table></div></div>';
         questionMappingsContent.innerHTML = html;
@@ -860,9 +876,11 @@
       root.style.cssText = 'position:fixed;inset:0;z-index:99;';
       root.addEventListener('click', (e) => { if (e.target === root) root.remove(); });
       const rect = btn.getBoundingClientRect();
+      const spaceBelow = window.innerHeight - rect.bottom;
+      const dropdownTop = spaceBelow < 240 ? Math.max(4, rect.top - 320) : rect.bottom + 4;
       const dd = document.createElement('div');
       dd.className = 'map-dropdown';
-      dd.style.cssText = `position:fixed;left:${rect.left}px;top:${rect.bottom + 4}px;`;
+      dd.style.cssText = `position:fixed;left:${rect.left}px;top:${dropdownTop}px;`;
       dd.addEventListener('click', (e) => e.stopPropagation());
       const searchInput = document.createElement('input');
       searchInput.type = 'text';
@@ -873,12 +891,15 @@
         const q = (filter || '').toLowerCase();
         const filtered = hubspotProperties.filter(p => !q || (p.label || '').toLowerCase().includes(q) || (p.name || '').toLowerCase().includes(q));
         ul.innerHTML = '<li data-clear="1" style="color:var(--text-muted);font-style:italic;">— Clear mapping</li>' +
+          '<li data-do-not-map="1" style="color:var(--text-muted);font-style:italic;">— Do not map</li>' +
           filtered.map(p => `<li data-name="${escapeHtml(p.name)}" data-label="${escapeHtml(p.label || p.name)}">${escapeHtml(p.label || p.name)}</li>`).join('');
         ul.querySelectorAll('li').forEach(li => {
           li.addEventListener('click', async () => {
             try {
               if (li.dataset.clear) {
                 await setGlobalQuestionMapping(eventId, questionId, null);
+              } else if (li.dataset.doNotMap) {
+                await setGlobalQuestionMapping(eventId, questionId, { name: '__do_not_map__', label: 'Do not map' });
               } else {
                 await setGlobalQuestionMapping(eventId, questionId, { name: li.dataset.name, label: li.dataset.label });
               }
@@ -1268,7 +1289,7 @@
               const mapKey = eventId && qid ? eventId + ':' + qid : '';
               const mapping = mapKey ? mappings[mapKey] : null;
               const mappedLabel = mapping ? mapping.label : '';
-              html += `<tr><td style="width:280px;"><div style="font-size:0.9rem;word-break:break-word;">${escapeHtml(qtext)}</div><div class="mono" style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">${escapeHtml(qid)}</div></td><td class="mono" style="width:180px;font-size:0.8rem;">${escapeHtml(qcode)}</td><td><div class="map-cell"><button type="button" class="map-btn ${mapping ? 'mapped' : ''}" data-qid="${escapeHtml(qid)}" title="Map to HubSpot property">+</button><span class="mapped-label">${escapeHtml(mappedLabel || 'Not mapped')}</span></div></td><td>${escapeHtml(samples || '—')}</td></tr>`;
+              html += `<tr><td style="width:280px;"><div style="font-size:0.9rem;word-break:break-word;">${escapeHtml(qtext)}</div><div class="mono" style="font-size:0.75rem;color:var(--text-muted);margin-top:0.25rem;">${escapeHtml(qid)}</div></td><td class="mono" style="width:180px;font-size:0.8rem;">${escapeHtml(qcode)}</td><td><div class="map-cell"><button type="button" class="map-btn ${mapping ? 'mapped' : ''}" data-qid="${escapeHtml(qid)}" title="Map to HubSpot property">+</button>${mappedLabelSpan(mapping, mappedLabel)}</div></td><td>${escapeHtml(samples || '—')}</td></tr>`;
             });
             html += '</tbody></table></div></div>';
           }

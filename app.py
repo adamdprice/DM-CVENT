@@ -4473,7 +4473,7 @@ def _hubspot_search_attendee_by_cvent_id(cvent_attendee_id: str) -> dict:
                     }]
                 }],
                 "limit": 1,
-                "properties": ["cvent_attendee_id", "attendee_name"],
+                "properties": ["cvent_attendee_id", "attendee_name", "email"],
             },
             timeout=15,
         )
@@ -5111,7 +5111,15 @@ def _execute_sync_step(
             result["attendee_id"] = str(attendee_rec.get("id", ""))
             result["actions"].append("Attendee record found in HubSpot")
             if attendee_properties and result["attendee_id"]:
-                ok, err = _hubspot_update_attendee_with_error(result["attendee_id"], attendee_properties)
+                existing_email = (attendee_rec.get("properties") or {}).get("email", "").strip().lower()
+                cvent_email_lc = email.strip().lower()
+                update_props = dict(attendee_properties)
+                if existing_email and existing_email != cvent_email_lc:
+                    update_props["email_mismatch"] = "true"
+                    result["actions"].append(f"Email mismatch flagged (HubSpot: {existing_email}, Cvent: {cvent_email_lc})")
+                else:
+                    update_props["email_mismatch"] = "false"
+                ok, err = _hubspot_update_attendee_with_error(result["attendee_id"], update_props)
                 if ok:
                     result["actions"].append("Updated attendee properties")
                 else:

@@ -1184,6 +1184,57 @@
             });
             aimHtml += '</tbody></table></div></div>';
             html += aimHtml;
+
+            // Revenue Split section — collect all unique HubSpot events linked to any admission item
+            const allLinkedEvents = [];
+            const seenEventIds = new Set();
+            admissionItems.forEach(ai => {
+              const aiId = String(ai.id || '');
+              hubspotEvents.filter(e => (e.admission_item_ids || []).includes(aiId)).forEach(ev => {
+                const evId = String(ev.id || '');
+                if (evId && !seenEventIds.has(evId)) {
+                  seenEventIds.add(evId);
+                  allLinkedEvents.push({ id: evId, name: ev.full_name || evId });
+                }
+              });
+            });
+
+            if (allLinkedEvents.length > 0) {
+              // Load existing splits from server
+              let existingSplits = {};
+              try {
+                const splitResp = await fetch(`/api/events/${encodeURIComponent(eventId)}/revenue-splits`);
+                if (splitResp.ok) {
+                  const splitData = await splitResp.json();
+                  (splitData.splits || []).forEach(s => {
+                    existingSplits[s.hubspot_event_id] = s.split_percent;
+                  });
+                }
+              } catch (_) {}
+
+              const equalShare = +(100 / allLinkedEvents.length).toFixed(3);
+
+              let rsHtml = '<div class="section-card" id="rev-split-section"><h3>Revenue Split</h3>';
+              rsHtml += '<p style="font-size:0.85rem;color:var(--text-muted);margin-bottom:1rem;">Set the percentage of each deal\'s revenue attributed to each HubSpot event. Percentages must sum to 100. Leave all at equal share to use the default equal split.</p>';
+
+              if (allLinkedEvents.length === 1) {
+                rsHtml += `<p style="font-size:0.9rem;">Only one HubSpot event linked — 100% of revenue goes to <strong>${escapeHtml(allLinkedEvents[0].name)}</strong>. No split needed.</p>`;
+              } else {
+                rsHtml += '<div class="table-wrap"><table class="data-table" style="min-width:460px;"><thead><tr><th>HubSpot event</th><th style="width:140px;">Split %</th><th style="width:100px;"></th></tr></thead><tbody id="rev-split-tbody">';
+                allLinkedEvents.forEach(ev => {
+                  const currentPct = existingSplits.hasOwnProperty(ev.id) ? existingSplits[ev.id] : equalShare;
+                  rsHtml += `<tr data-hs-event-id="${escapeHtml(ev.id)}">
+                    <td>${escapeHtml(ev.name)}</td>
+                    <td><input type="number" min="0" max="100" step="0.1" class="rev-split-input" data-hs-event-id="${escapeHtml(ev.id)}" value="${currentPct}" style="width:90px;padding:4px 6px;font-size:0.9rem;border:1px solid var(--border);border-radius:4px;background:var(--surface);color:var(--text);"> %</td>
+                    <td class="rev-split-status" style="font-size:0.8rem;color:var(--text-muted);"></td>
+                  </tr>`;
+                });
+                rsHtml += '</tbody></table></div>';
+                rsHtml += '<div id="rev-split-total" style="margin-top:0.75rem;font-size:0.875rem;font-weight:600;"></div>';
+              }
+              rsHtml += '</div>';
+              html += rsHtml;
+            }
           }
 
           if (quantityItems.length > 0) {
@@ -1244,6 +1295,46 @@
               openEventDropdown(btn, { id: btn.dataset.aiId, name: btn.dataset.aiName, code: btn.dataset.aiCode });
             });
           });
+
+          // Revenue split inputs — live total + auto-save on blur
+          const revSplitInputs = setupContent.querySelectorAll('input.rev-split-input');
+          if (revSplitInputs.length > 0) {
+            function updateRevSplitTotal() {
+              let total = 0;
+              revSplitInputs.forEach(inp => { total += parseFloat(inp.value || 0); });
+              total = Math.round(total * 1000) / 1000;
+              const totalEl = setupContent.querySelector('#rev-split-total');
+              if (totalEl) {
+                const ok = Math.abs(total - 100) < 0.1;
+                totalEl.textContent = `Total: ${total}%${ok ? ' ✓' : ' — must equal 100%'}`;
+                totalEl.style.color = ok ? 'var(--text-muted)' : '#c0392b';
+              }
+            }
+            updateRevSplitTotal();
+            revSplitInputs.forEach(inp => {
+              inp.addEventListener('input', updateRevSplitTotal);
+              inp.addEventListener('blur', async () => {
+                const hsEventId = inp.dataset.hsEventId;
+                const splitPct = parseFloat(inp.value || 0);
+                const statusEl = inp.closest('tr')?.querySelector('.rev-split-status');
+                if (statusEl) statusEl.textContent = 'Saving…';
+                try {
+                  const res = await fetch(`/api/events/${encodeURIComponent(eventId)}/revenue-splits`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ hubspot_event_id: hsEventId, split_percent: splitPct }),
+                  });
+                  const json = await res.json();
+                  if (statusEl) {
+                    statusEl.textContent = json.ok ? 'Saved' : ('Error: ' + (json.error || 'unknown'));
+                    setTimeout(() => { if (statusEl) statusEl.textContent = ''; }, 2000);
+                  }
+                } catch (e) {
+                  if (statusEl) { statusEl.textContent = 'Error'; setTimeout(() => { statusEl.textContent = ''; }, 2000); }
+                }
+              });
+            });
+          }
 
           // Admission item property mapping — auto-save on change
           setupContent.querySelectorAll('select.aim-select').forEach(sel => {

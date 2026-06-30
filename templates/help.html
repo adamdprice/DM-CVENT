@@ -245,7 +245,7 @@
     <ul>
       <li><strong>No email address</strong> — sync fails with an error (email is required to find/create a Contact)</li>
       <li><strong>Not "Accepted" status and never previously synced</strong> — skipped entirely (no HubSpot writes)</li>
-      <li><strong>Cancelled and previously synced</strong> — only the <code>cvent_reg_status</code> and <code>cvent_cancelled</code> fields are updated on the Attendee; no new associations or deals are created</li>
+      <li><strong>Cancelled and previously synced</strong> — only <code>cvent_reg_status</code> and <code>cancelled_reason</code> are updated on the Attendee (cancelled_reason is set to "TBC (auto-update - cancelled in Cvent)"); no new associations or deals are created</li>
     </ul>
 
     <!-- ── EVENTS HOME ─────────────────────────────────────────────── -->
@@ -700,7 +700,7 @@
         <tr><td>cvent_invoice_number</td><td>Cvent</td><td>Order invoice number</td></tr>
         <tr><td>cvent_reference_id</td><td>Cvent</td><td>Order reference ID</td></tr>
         <tr><td>cvent_reg_date</td><td>Cvent</td><td>Date of registration</td></tr>
-        <tr><td>cvent_cancelled</td><td>Cvent</td><td>"true" if the registration is cancelled</td></tr>
+        <tr><td>cancelled_reason</td><td>Cvent</td><td>Set to "TBC (auto-update - cancelled in Cvent)" when a cancellation is detected</td></tr>
         <tr><td>cvent_amount_due</td><td>Cvent order</td><td>Current amount due on the order</td></tr>
         <tr><td>cvent_amount_excl_vattax</td><td>Cvent order</td><td>Amount excluding VAT/tax</td></tr>
         <tr><td>discount_code</td><td>Cvent order</td><td>Discount codes applied, semicolon-separated</td></tr>
@@ -728,7 +728,7 @@
         <tr><td>company_name</td><td>Attendee's company name</td></tr>
         <tr><td>country</td><td>Attendee's country</td></tr>
         <tr><td>cvent_admission_item</td><td>Admission item name, resolved via the per-event <a href="#admission-item-mapping">admission item property mapping</a></td></tr>
-        <tr><td>cvent_cancelled</td><td>"true" if registration is cancelled</td></tr>
+        <tr><td>cancelled_reason</td><td>"TBC (auto-update - cancelled in Cvent)" when cancelled</td></tr>
         <tr><td>cvent_invoice_number</td><td>Order invoice number</td></tr>
         <tr><td>cvent_reference_id</td><td>Order reference ID</td></tr>
         <tr><td>primary_organization_type</td><td>Attendee's organisation type</td></tr>

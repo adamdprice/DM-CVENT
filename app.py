@@ -1057,6 +1057,137 @@ def _resolve_admission_item(raw_name: str, aim: dict) -> str:
     return aim.get(raw, "")
 
 
+# ---------------------------------------------------------------------------
+# Revenue splits: per-HubSpot-event percentage config for each Cvent event.
+# Stored as (cvent_event_id, hubspot_event_id) → split_percent (0–100).
+# When configured, deals use these percentages instead of an equal split.
+# Percentages should sum to 100 across all HubSpot events for a given
+# Cvent event, but the sync tolerates small rounding differences gracefully.
+# ---------------------------------------------------------------------------
+
+_rev_split_lock = threading.Lock()
+_rev_split_mem: dict = {}  # (cvent_event_id, hubspot_event_id) → float
+
+
+def _rev_split_ensure_table(cur) -> None:
+    cur.execute(
+        """
+        CREATE TABLE IF NOT EXISTS event_revenue_splits (
+            cvent_event_id   TEXT NOT NULL,
+            hubspot_event_id TEXT NOT NULL,
+            split_percent    NUMERIC(6,3) NOT NULL,
+            updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (cvent_event_id, hubspot_event_id)
+        )
+        """
+    )
+
+
+def _rev_split_get(cvent_event_id: str) -> list:
+    """Return all splits for a Cvent event as [{hubspot_event_id, split_percent}]."""
+    eid = str(cvent_event_id or "").strip()
+    if not eid:
+        return []
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    _rev_split_ensure_table(cur)
+                    cur.execute(
+                        "SELECT hubspot_event_id, split_percent FROM event_revenue_splits WHERE cvent_event_id = %s ORDER BY hubspot_event_id",
+                        (eid,),
+                    )
+                    return [{"hubspot_event_id": r[0], "split_percent": float(r[1])} for r in cur.fetchall()]
+        except Exception as e:
+            app.logger.warning("rev_split_get db failed: %s", e)
+    with _rev_split_lock:
+        return [
+            {"hubspot_event_id": k[1], "split_percent": v}
+            for k, v in _rev_split_mem.items()
+            if k[0] == eid
+        ]
+
+
+def _rev_split_upsert(cvent_event_id: str, hubspot_event_id: str, split_percent: float) -> None:
+    eid = str(cvent_event_id or "").strip()
+    hsid = str(hubspot_event_id or "").strip()
+    if not eid or not hsid:
+        return
+    pct = float(split_percent or 0)
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    _rev_split_ensure_table(cur)
+                    cur.execute(
+                        """
+                        INSERT INTO event_revenue_splits (cvent_event_id, hubspot_event_id, split_percent, updated_at)
+                        VALUES (%s, %s, %s, NOW())
+                        ON CONFLICT (cvent_event_id, hubspot_event_id) DO UPDATE
+                        SET split_percent = EXCLUDED.split_percent, updated_at = NOW()
+                        """,
+                        (eid, hsid, pct),
+                    )
+            return
+        except Exception as e:
+            app.logger.warning("rev_split_upsert db failed: %s", e)
+    with _rev_split_lock:
+        _rev_split_mem[(eid, hsid)] = pct
+
+
+def _rev_split_delete(cvent_event_id: str, hubspot_event_id: str) -> None:
+    eid = str(cvent_event_id or "").strip()
+    hsid = str(hubspot_event_id or "").strip()
+    if not eid or not hsid:
+        return
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    _rev_split_ensure_table(cur)
+                    cur.execute(
+                        "DELETE FROM event_revenue_splits WHERE cvent_event_id = %s AND hubspot_event_id = %s",
+                        (eid, hsid),
+                    )
+            return
+        except Exception as e:
+            app.logger.warning("rev_split_delete db failed: %s", e)
+    with _rev_split_lock:
+        _rev_split_mem.pop((eid, hsid), None)
+
+
+def _rev_split_delete_all(cvent_event_id: str) -> None:
+    """Remove all splits for a Cvent event (used when resetting)."""
+    eid = str(cvent_event_id or "").strip()
+    if not eid:
+        return
+    if DATABASE_URL:
+        try:
+            import psycopg2
+            with psycopg2.connect(DATABASE_URL) as conn:
+                with conn.cursor() as cur:
+                    _rev_split_ensure_table(cur)
+                    cur.execute("DELETE FROM event_revenue_splits WHERE cvent_event_id = %s", (eid,))
+            return
+        except Exception as e:
+            app.logger.warning("rev_split_delete_all db failed: %s", e)
+    with _rev_split_lock:
+        for k in [k for k in _rev_split_mem if k[0] == eid]:
+            _rev_split_mem.pop(k, None)
+
+
+def _rev_split_as_dict(cvent_event_id: str) -> dict:
+    """Return {hubspot_event_id: split_percent_as_fraction} for use at sync time.
+    Returns empty dict when no splits are configured (caller should use equal split)."""
+    rows = _rev_split_get(cvent_event_id)
+    if not rows:
+        return {}
+    return {r["hubspot_event_id"]: r["split_percent"] / 100.0 for r in rows}
+
+
 def _send_otp_email(to_email: str, code: str) -> None:
     import ssl
     import smtplib
@@ -1386,6 +1517,50 @@ def api_hubspot_admission_item_options():
         return jsonify({"error": str(e)}), 500
 
 
+@app.route("/api/events/<cvent_event_id>/revenue-splits", methods=["GET"])
+def api_get_revenue_splits(cvent_event_id):
+    """Return configured revenue splits for a Cvent event."""
+    eid = str(cvent_event_id or "").strip()
+    return jsonify({"splits": _rev_split_get(eid)})
+
+
+@app.route("/api/events/<cvent_event_id>/revenue-splits", methods=["POST"])
+def api_set_revenue_split(cvent_event_id):
+    """Upsert a revenue split percentage for one HubSpot event.
+    Body: {hubspot_event_id: str, split_percent: number}
+    To reset all splits to equal, POST {reset: true}.
+    """
+    eid = str(cvent_event_id or "").strip()
+    if not eid:
+        return jsonify({"error": "cvent_event_id required"}), 400
+    data = request.get_json() or {}
+    if data.get("reset"):
+        _rev_split_delete_all(eid)
+        return jsonify({"ok": True, "reset": True})
+    hubspot_event_id = (data.get("hubspot_event_id") or "").strip()
+    if not hubspot_event_id:
+        return jsonify({"error": "hubspot_event_id required"}), 400
+    try:
+        split_percent = float(data.get("split_percent", 0))
+    except (TypeError, ValueError):
+        return jsonify({"error": "split_percent must be a number"}), 400
+    if split_percent < 0 or split_percent > 100:
+        return jsonify({"error": "split_percent must be between 0 and 100"}), 400
+    _rev_split_upsert(eid, hubspot_event_id, split_percent)
+    return jsonify({"ok": True})
+
+
+@app.route("/api/events/<cvent_event_id>/revenue-splits/<hubspot_event_id>", methods=["DELETE"])
+def api_delete_revenue_split(cvent_event_id, hubspot_event_id):
+    """Remove a single revenue split row."""
+    eid = str(cvent_event_id or "").strip()
+    hsid = str(hubspot_event_id or "").strip()
+    if not eid or not hsid:
+        return jsonify({"error": "cvent_event_id and hubspot_event_id required"}), 400
+    _rev_split_delete(eid, hsid)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/sync-status")
 def sync_status():
     cvent_attendee_id = (request.args.get("cvent_attendee_id") or "").strip()
@@ -1597,6 +1772,7 @@ def _build_deal_plan(
     quantity_item_product_mappings: dict = None,
     currency: str = "",
     admission_item_mappings: dict = None,
+    cvent_event_id: str = "",
 ) -> dict:
     """
     Determine if deal(s) would be created and build plan (1 deal per event, revenue split when multiple).
@@ -1689,6 +1865,7 @@ def _build_deal_plan(
             for i, ea in enumerate(event_associations):
                 event_id = ea.get("event_id")
                 event_name = (ea.get("full_name") or "").strip() or f"Event {event_id}"
+                event_code = (ea.get("event_code") or "").strip()
                 dealname = f"{full_name} - {event_name}"
                 props = {
                     "dealname": dealname,
@@ -1697,9 +1874,9 @@ def _build_deal_plan(
                     "company_name": (attendee.get("company_name") or "").strip(),
                     "country": (attendee.get("attendee_country") or "").strip(),
                     "cvent_admission_item": _resolve_admission_item(attendee.get("admission_item") or "", admission_item_mappings or {}),
-                    "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
                     "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
                     "cvent_reference_id": reference_id,
+                    "event_code": event_code,
                     "cvent_testing": "yes",
                     "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
                     "deal_currency_code": currency,
@@ -1710,6 +1887,7 @@ def _build_deal_plan(
                 deal_plan.append({
                     "event_id": event_id,
                     "event_name": event_name,
+                    "event_code": event_code,
                     "amount": half,
                     "dealname": dealname,
                     "properties": props,
@@ -1742,11 +1920,13 @@ def _build_deal_plan(
             speaker_upgrade_event_labels = []
             for ea in event_associations:
                 event_name = (ea.get("full_name") or "").strip() or f"Event {ea.get('event_id')}"
+                event_code_ea = (ea.get("event_code") or "").strip()
                 # Speaker association: "both" → speaker on both; one event name → that event speaker, other = guest.
                 if speaker_answer.lower() == "both":
                     speaker_upgrade_event_labels.append({
                         "event_id": ea.get("event_id"),
                         "event_name": event_name,
+                        "event_code": event_code_ea,
                         "label_id": speaker_label[0],
                         "label_name": speaker_label[1],
                     })
@@ -1754,6 +1934,7 @@ def _build_deal_plan(
                     speaker_upgrade_event_labels.append({
                         "event_id": ea.get("event_id"),
                         "event_name": event_name,
+                        "event_code": event_code_ea,
                         "label_id": speaker_label[0],
                         "label_name": speaker_label[1],
                     })
@@ -1770,6 +1951,7 @@ def _build_deal_plan(
                     speaker_upgrade_event_labels.append({
                         "event_id": ea.get("event_id"),
                         "event_name": event_name,
+                        "event_code": event_code_ea,
                         "label_id": label_id,
                         "label_name": label_name,
                     })
@@ -1786,11 +1968,13 @@ def _build_deal_plan(
             if paid_event:
                 event_id = paid_event.get("event_id")
                 event_name = (paid_event.get("event_name") or "").strip() or f"Event {event_id}"
+                event_code = (paid_event.get("event_code") or "").strip()
             else:
                 # Fallback to previous behavior when labels couldn't be resolved.
                 new_event = event_associations[1] if len(event_associations) > 1 else event_associations[0]
                 event_id = new_event.get("event_id")
                 event_name = (new_event.get("full_name") or "").strip() or f"Event {event_id}"
+                event_code = (new_event.get("event_code") or "").strip()
             dealname = f"{full_name} - {event_name}"
             # Only create a new deal when the additional transaction has positive amount
             amt = round(additional_amount, 2) if additional_amount > 0 else None
@@ -1801,9 +1985,9 @@ def _build_deal_plan(
                 "company_name": (attendee.get("company_name") or "").strip(),
                 "country": (attendee.get("attendee_country") or "").strip(),
                 "cvent_admission_item": _resolve_admission_item(attendee.get("admission_item") or "", admission_item_mappings or {}),
-                "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
                 "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
                 "cvent_reference_id": reference_id,
+                "event_code": event_code,
                 "cvent_testing": "yes",
                 "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
                 "deal_currency_code": currency,
@@ -1814,6 +1998,7 @@ def _build_deal_plan(
             deal_plan.append({
                 "event_id": event_id,
                 "event_name": event_name,
+                "event_code": event_code,
                 "amount": amt,
                 "dealname": dealname,
                 "properties": props,
@@ -1876,6 +2061,7 @@ def _build_deal_plan(
                     speaker_upgrade_event_labels.append({
                         "event_id": event_id_val,
                         "event_name": event_name_val,
+                        "event_code": (ea.get("event_code") or "").strip(),
                         "label_id": sponsor_label[0],
                         "label_name": sponsor_label[1],
                     })
@@ -1895,6 +2081,7 @@ def _build_deal_plan(
                     speaker_upgrade_event_labels.append({
                         "event_id": event_id_val,
                         "event_name": event_name_val,
+                        "event_code": (ea.get("event_code") or "").strip(),
                         "label_id": label_id,
                         "label_name": label_name,
                     })
@@ -1903,6 +2090,7 @@ def _build_deal_plan(
                 new_event = paying_delegate_event_ea
                 event_id = new_event.get("event_id")
                 event_name = (new_event.get("full_name") or "").strip() or f"Event {event_id}"
+                event_code = (new_event.get("event_code") or "").strip()
                 dealname = f"{full_name} - {event_name}"
                 amt = round(additional_amount, 2) if additional_amount is not None else None
                 props = {
@@ -1912,9 +2100,9 @@ def _build_deal_plan(
                     "company_name": (attendee.get("company_name") or "").strip(),
                     "country": (attendee.get("attendee_country") or "").strip(),
                     "cvent_admission_item": _resolve_admission_item(attendee.get("admission_item") or "", admission_item_mappings or {}),
-                    "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
                     "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
                     "cvent_reference_id": reference_id,
+                    "event_code": event_code,
                     "cvent_testing": "yes",
                     "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
                     "deal_currency_code": currency,
@@ -1925,20 +2113,31 @@ def _build_deal_plan(
                 deal_plan.append({
                     "event_id": event_id,
                     "event_name": event_name,
+                    "event_code": event_code,
                     "amount": amt,
                     "dealname": dealname,
                     "properties": props,
                     "action": "upsert",
                 })
 
-        # Standard: split across all events
+        # Standard: split across all events using configured percentages (if any),
+        # falling back to an equal split when no custom config is present.
         else:
             n = n_events
-            amount_each = (amount_ordered / n) if n and amount_ordered is not None else None
+            # Load custom revenue splits for this Cvent event.
+            custom_splits = _rev_split_as_dict(cvent_event_id) if cvent_event_id else {}
             for ea in event_associations:
                 event_id = ea.get("event_id")
+                event_id_str = str(event_id or "")
                 event_name = (ea.get("full_name") or "").strip() or f"Event {event_id}"
+                event_code = (ea.get("event_code") or "").strip()
                 dealname = f"{full_name} - {event_name}"
+                # Determine this event's share of the total amount.
+                if custom_splits and event_id_str in custom_splits:
+                    fraction = custom_splits[event_id_str]
+                    amount_each = round(amount_ordered * fraction, 2) if amount_ordered is not None else None
+                else:
+                    amount_each = (round(amount_ordered / n, 2) if n and amount_ordered is not None else None)
                 props = {
                     "dealname": dealname,
                     "pipeline": HUBSPOT_DEAL_PIPELINE,
@@ -1946,19 +2145,20 @@ def _build_deal_plan(
                     "company_name": (attendee.get("company_name") or "").strip(),
                     "country": (attendee.get("attendee_country") or "").strip(),
                     "cvent_admission_item": _resolve_admission_item(attendee.get("admission_item") or "", admission_item_mappings or {}),
-                    "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
                     "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
                     "cvent_reference_id": reference_id,
+                    "event_code": event_code,
                     "cvent_testing": "yes",
                     "primary_organization_type": (attendee.get("primary_organisation_type") or "").strip(),
                     "deal_currency_code": currency,
                 }
                 if amount_each is not None:
-                    props["amount"] = round(amount_each, 2)
+                    props["amount"] = amount_each
                 props = {k: v for k, v in props.items() if v not in ("", None)}
                 deal_plan.append({
                     "event_id": event_id,
                     "event_name": event_name,
+                    "event_code": event_code,
                     "amount": amount_each,
                     "dealname": dealname,
                     "properties": props,
@@ -2050,7 +2250,6 @@ def _build_deal_plan(
                     "company_name": (attendee.get("company_name") or "").strip(),
                     "country": (attendee.get("attendee_country") or "").strip(),
                     "cvent_admission_item": _resolve_admission_item(attendee.get("admission_item") or "", admission_item_mappings or {}),
-                    "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
                     "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
                     "cvent_reference_id": reference_id,
                     "cvent_quantity_item_id": str(qi_id),
@@ -3983,6 +4182,7 @@ def _resolve_association_label_and_events(
             event_by_id[str(eid)] = {
                 "event_id": eid,
                 "full_name": e.get("full_name", ""),
+                "event_code": e.get("event_code", ""),
                 "label_id": base_label[0],
                 "label_name": base_label[1],
             }
@@ -3993,6 +4193,17 @@ def _resolve_association_label_and_events(
     #      (we no longer use sponsor→event associations to decide labels)
     discount_codes = order.get("discount_codes") or []
     discount_code_strs = [dc.get("code", "") for dc in discount_codes if dc.get("code")]
+
+    # Explicit label overrides from specific discount code substrings.
+    # These take priority over the registration-type base label set above.
+    # No deal is created at £0 — deal conditions remain unchanged.
+    _dc_combined = " ".join(discount_code_strs).upper()
+    if "CREDIT" in _dc_combined:
+        base_label = (ASSOC_LABEL_PAYING_DELEGATE, "Paying Delegate")
+        warnings.append("Discount code contains 'CREDIT' — Attendee Type forced to Paying Delegate.")
+    elif "SUB100" in _dc_combined:
+        base_label = (ASSOC_LABEL_PAYING_DELEGATE, "Paying Delegate")
+        warnings.append("Discount code contains 'SUB100' — Attendee Type forced to Paying Delegate.")
 
     sponsor_main_label_id = None
     sponsor_main_label_name = None
@@ -4179,7 +4390,7 @@ def _hubspot_events_for_admission_item(admission_item_id: str) -> list:
         events = []
         after = None
         for _ in range(20):
-            params = {"limit": 100, "properties": "full_name," + HUBSPOT_EVENT_ADMISSION_PROP}
+            params = {"limit": 100, "properties": "full_name," + HUBSPOT_EVENT_CODE_PROP + "," + HUBSPOT_EVENT_ADMISSION_PROP}
             if after:
                 params["after"] = after
             r = requests.get(
@@ -4199,6 +4410,7 @@ def _hubspot_events_for_admission_item(admission_item_id: str) -> list:
                     events.append({
                         "id": rec.get("id"),
                         "full_name": props.get("full_name", ""),
+                        "event_code": props.get(HUBSPOT_EVENT_CODE_PROP, ""),
                     })
             after = (data.get("paging", {}).get("next", {}) or {}).get("after")
             if not after:
@@ -4635,16 +4847,19 @@ def _hubspot_search_deals_for_contact(contact_id: str, limit: int = 20) -> list:
                 headers={"Authorization": f"Bearer {HUBSPOT_TOKEN}", "Content-Type": "application/json"},
                 json={
                     "inputs": [{"id": did} for did in chunk],
-                    "properties": ["dealname", "amount"],
+                    "properties": ["dealname", "amount", "cvent_reference_id", "event_code"],
                 },
                 timeout=20,
             )
             if br.ok:
                 for j in br.json().get("results", []):
+                    p = j.get("properties") or {}
                     out.append({
                         "id": j.get("id"),
-                        "dealname": (j.get("properties") or {}).get("dealname", ""),
-                        "amount": (j.get("properties") or {}).get("amount", ""),
+                        "dealname": p.get("dealname", ""),
+                        "amount": p.get("amount", ""),
+                        "cvent_reference_id": p.get("cvent_reference_id", ""),
+                        "event_code": p.get("event_code", ""),
                     })
         return out
     except Exception:
@@ -4753,7 +4968,6 @@ def _build_attendee_properties(attendee: dict, order: dict, admission_item_overr
         "cvent_attendee_id": cvent_id,
         "discount_code": cvent_discount_code,
         "last_cvent_sync": now_ms,
-        "cvent_cancelled": (order.get("cancelled") or "false").strip().lower(),
         "cvent_confirmation_number": (attendee.get("confirmation_number") or "").strip(),
         "cvent_invoice_number": (order.get("invoice_number") or "").strip(),
         "cvent_reference_id": (attendee.get("reference_id") or "").strip(),
@@ -4995,20 +5209,33 @@ def _execute_sync_step(
         action = item.get("action", "create")
         event_id = str((item.get("event_id") or "")).strip()
         event_name = (item.get("event_name") or "").strip()
+        event_code = (item.get("event_code") or "").strip()
         dealname = item.get("dealname") or ""
         props = item.get("properties") or {}
         amount = item.get("amount")
         tax_amount = item.get("tax_amount")
         product_id = str((item.get("product_id") or "")).strip()
+        ref_id = (props.get("cvent_reference_id") or "").strip()
         if action in ("update_existing", "upsert"):
-            # Prefer an exact full-name match to avoid false positives when two events
-            # share a company name (e.g. "LFEU26 - Acme - Delegate" vs "IPEU26 - Acme - Delegate").
-            existing = next(
-                (d for d in contact_deals if dealname and (d.get("dealname") or "").strip() == dealname.strip()),
-                None,
-            )
+            # Primary: match on cvent_reference_id + event_code — reliable regardless of deal name drift.
+            existing = None
+            if ref_id and event_code:
+                existing = next(
+                    (
+                        d for d in contact_deals
+                        if (d.get("cvent_reference_id") or "").strip() == ref_id
+                        and (d.get("event_code") or "").strip() == event_code
+                    ),
+                    None,
+                )
             if existing is None:
-                # Fallback: partial match on event_name for legacy deal names that may differ slightly.
+                # Fallback: exact deal name match for legacy deals created before event_code was written.
+                existing = next(
+                    (d for d in contact_deals if dealname and (d.get("dealname") or "").strip() == dealname.strip()),
+                    None,
+                )
+            if existing is None:
+                # Last resort: partial match on event_name for very old deal names that differ slightly.
                 existing = next(
                     (d for d in contact_deals if event_name and (event_name in (d.get("dealname") or ""))),
                     None,
@@ -5055,7 +5282,13 @@ def _execute_sync_step(
         result["actions"].append(f"Created deal for {event_name}")
         # Immediately add to the in-memory list so the next transaction step's upsert can find
         # this deal without waiting for HubSpot's association index to propagate.
-        contact_deals.append({"id": deal_id, "dealname": dealname, "amount": str(amount) if amount is not None else ""})
+        contact_deals.append({
+            "id": deal_id,
+            "dealname": dealname,
+            "amount": str(amount) if amount is not None else "",
+            "cvent_reference_id": ref_id,
+            "event_code": event_code,
+        })
         if result["contact_id"]:
             _hubspot_put_association(
                 "contacts", result["contact_id"],
@@ -5162,7 +5395,7 @@ def hubspot_sync_attendee():
             attendee_id = str(attendee_result.get("id") or "")
             props = {
                 "cvent_reg_status": reg_status,
-                "cvent_cancelled": "true",
+                "cancelled_reason": "TBC (auto-update - cancelled in Cvent)",
                 "last_cvent_sync": int(__import__('datetime').datetime.now(__import__('datetime').timezone.utc).replace(hour=0, minute=0, second=0, microsecond=0).timestamp() * 1000),
             }
             try:
@@ -5175,7 +5408,7 @@ def hubspot_sync_attendee():
                 )
             except Exception:
                 pass
-            actions = [f"Updated cancelled attendee status fields only (cvent_reg_status, cvent_cancelled)"]
+            actions = [f"Updated cancelled attendee status fields only (cvent_reg_status, cancelled_reason)"]
             _log_sync("success", attendee_name=attendee.get("attendee_name", ""), summary="Cancelled attendee — status fields updated only.", errors=[], actions=actions)
             return jsonify({"ok": True, "cancelled_minimal_update": True, "actions": actions}), 200
         else:
@@ -5306,6 +5539,7 @@ def hubspot_sync_attendee():
             quantity_item_product_mappings=quantity_item_product_mappings,
             currency=event_currency,
             admission_item_mappings=admission_item_mappings,
+            cvent_event_id=cvent_event_id,
         )
         speaker_labels = deal_result.get("speaker_upgrade_event_labels")
         if speaker_labels:
@@ -5532,6 +5766,7 @@ def hubspot_sync_attendee():
                 quantity_item_product_mappings=quantity_item_product_mappings,
                 currency=event_currency,
                 admission_item_mappings=admission_item_mappings,
+                cvent_event_id=cvent_event_id,
             )
             speaker_labels_k = deal_result_k.get("speaker_upgrade_event_labels")
             if speaker_labels_k:
@@ -5842,6 +6077,7 @@ def hubspot_sync_attendee():
             quantity_item_product_mappings=quantity_item_product_mappings,
             currency=event_currency,
             admission_item_mappings=admission_item_mappings,
+            cvent_event_id=cvent_event_id,
         )
         speaker_labels_k = deal_result_k.get("speaker_upgrade_event_labels")
         if speaker_labels_k:

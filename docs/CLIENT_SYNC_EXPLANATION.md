@@ -25,7 +25,7 @@ This document explains how the DM Cvent Integration creates and updates HubSpot 
   - **cvent_attendee_id**, **cvent_admission_item** (from the **current transaction’s** admission item, not only the “current” Cvent profile)
   - **cvent_reg_date**, **cvent_reg_status**, **cvent_registration_type**
   - **cvent_reference_id**, **cvent_confirmation_number**, **cvent_invoice_number**
-  - **cvent_cancelled**, **cvent_amount_due**
+  - **cancelled_reason**, **cvent_amount_due**
   - **how_did_you_hear**, **primary_organization_type**, **special_requirements**
 
 So: **one Cvent attendee** → **one HubSpot contact** (by email) and **one HubSpot attendee** (by Cvent Attendee ID). Both are created only when missing; afterwards we update attendee properties and associations.

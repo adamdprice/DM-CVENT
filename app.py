@@ -4150,11 +4150,28 @@ def _resolve_association_label_and_events(
     reg_type = (attendee.get("registration_type") or "").strip()
     warnings: list = []
 
+    # Resolve discount codes first — needed for Paying Delegate amount logic below.
+    discount_codes = order.get("discount_codes") or []
+    discount_code_strs = [dc.get("code", "") for dc in discount_codes if dc.get("code")]
+    _dc_combined = " ".join(discount_code_strs).upper()
+    _has_credit_sub100 = "CREDIT" in _dc_combined or "SUB100" in _dc_combined
+
     # Base label from attendee type only (we do not use registration path).
-    # Paying Delegate only for the explicit PAYING_DELEGATE_TYPES list.
+    # Paying Delegate requires: registration type in PAYING_DELEGATE_TYPES AND
+    # (amount > 0 OR discount code contains CREDIT/SUB100).
+    # Zero-amount Paying Delegate types with no CREDIT/SUB100 code → Unknown.
+    # CREDIT/SUB100 only exempts Paying Delegate types from the zero-amount rule;
+    # it does NOT override Speaker, Sponsor, Guest, or Unknown labels.
     reg_type_lc = reg_type.lower()
+    _txn_amount = current_transaction_amount or 0
     if reg_type in PAYING_DELEGATE_TYPES:
-        base_label = (ASSOC_LABEL_PAYING_DELEGATE, "Paying Delegate")
+        if _txn_amount > 0 or _has_credit_sub100:
+            base_label = (ASSOC_LABEL_PAYING_DELEGATE, "Paying Delegate")
+            if _has_credit_sub100 and _txn_amount == 0:
+                warnings.append(f"Amount is £0 but discount code contains CREDIT/SUB100 — Paying Delegate label preserved.")
+        else:
+            base_label = (ASSOC_LABEL_UNKNOWN, "Unknown")
+            warnings.append(f"Registration type \"{reg_type}\" is Paying Delegate but amount is £0 with no CREDIT/SUB100 code — defaulting to Unknown.")
     elif reg_type in DEALMAKERS_GUEST_TYPES:
         base_label = (ASSOC_LABEL_DEALMAKERS_GUEST, "Dealmakers Guest")
     elif ("sponsor" in reg_type_lc and "executive" in reg_type_lc) or reg_type_lc in {"sponsor exec"}:
@@ -4191,19 +4208,6 @@ def _resolve_association_label_and_events(
     #    - still used to associate attendee to sponsor record
     #    - and to decide Sponsor-vs-Guest label on events from admission item
     #      (we no longer use sponsor→event associations to decide labels)
-    discount_codes = order.get("discount_codes") or []
-    discount_code_strs = [dc.get("code", "") for dc in discount_codes if dc.get("code")]
-
-    # Explicit label overrides from specific discount code substrings.
-    # These take priority over the registration-type base label set above.
-    # No deal is created at £0 — deal conditions remain unchanged.
-    _dc_combined = " ".join(discount_code_strs).upper()
-    if "CREDIT" in _dc_combined:
-        base_label = (ASSOC_LABEL_PAYING_DELEGATE, "Paying Delegate")
-        warnings.append("Discount code contains 'CREDIT' — Attendee Type forced to Paying Delegate.")
-    elif "SUB100" in _dc_combined:
-        base_label = (ASSOC_LABEL_PAYING_DELEGATE, "Paying Delegate")
-        warnings.append("Discount code contains 'SUB100' — Attendee Type forced to Paying Delegate.")
 
     sponsor_main_label_id = None
     sponsor_main_label_name = None

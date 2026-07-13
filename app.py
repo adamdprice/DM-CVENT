@@ -6081,6 +6081,7 @@ def hubspot_sync_attendee():
             "invoice_number": orders_structured[k - 1].get("invoice_number", order.get("invoice_number")) if k <= len(orders_structured) else order.get("invoice_number"),
             "reference_number": order.get("reference_number"),
             "amount_due": order.get("amount_due"),
+            "discount_codes": order.get("discount_codes") or [],
         }
         # Admission item from same source as Purchase Journey (user_journey[k].products)
         if k <= len(user_journey):

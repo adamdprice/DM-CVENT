@@ -2133,7 +2133,7 @@ def _build_deal_plan(
                 event_code = (ea.get("event_code") or "").strip()
                 dealname = f"{full_name} - {event_name}"
                 # Determine this event's share of the total amount.
-                if custom_splits and event_id_str in custom_splits:
+                if custom_splits and event_id_str in custom_splits and n > 1:
                     fraction = custom_splits[event_id_str]
                     amount_each = round(amount_ordered * fraction, 2) if amount_ordered is not None else None
                 else:

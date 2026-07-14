@@ -1447,6 +1447,7 @@
 
           let html = '<div class="section-card"><h3>Attendees</h3>';
           html += `<p style="margin-bottom:1rem;">${attendees.length} attendee(s) found. Click an attendee to view details.</p>`;
+          html += '<input type="text" id="attendee-search" placeholder="Search by name or email..." style="width:100%;max-width:360px;padding:0.5rem 0.75rem;border:1px solid var(--border);border-radius:6px;font-size:0.9rem;margin-bottom:1rem;background:var(--bg);color:var(--text);box-sizing:border-box;">';
           html += '<div class="table-wrap"><table class="data-table table-attendees"><thead><tr><th>Name</th><th>Email</th><th>Type</th><th>Status</th><th>Last updated</th><th>Synced with HubSpot</th></tr></thead><tbody>';
           attendees.forEach(a => {
             const aid = a.id || '—';
@@ -1490,6 +1491,21 @@
               }
             });
           });
+
+          // Wire up attendee search filter
+          const attendeeSearch = document.getElementById('attendee-search');
+          const attendeeTbody = attendeesContent.querySelector('.table-attendees tbody');
+          if (attendeeSearch && attendeeTbody) {
+            attendeeSearch.addEventListener('input', () => {
+              const q = attendeeSearch.value.trim().toLowerCase();
+              attendeeTbody.querySelectorAll('.attendee-row').forEach(row => {
+                const name = (row.cells[0] ? row.cells[0].textContent : '').toLowerCase();
+                const email = (row.cells[1] ? row.cells[1].textContent : '').toLowerCase();
+                row.style.display = (!q || name.includes(q) || email.includes(q)) ? '' : 'none';
+              });
+            });
+            attendeeSearch.focus();
+          }
 
           // Show sync-all bar and wire up button
           const syncAllBar = document.getElementById('sync-all-bar');
@@ -1868,9 +1884,6 @@
         content += '<div class="result-item" style="margin-top:0.5rem;"><span class="label">Scenario</span><span class="value">Paying delegate upgrade (split total across both deals)</span></div>';
       } else if (scenario === 'speaker_upgrade') {
         content += '<div class="result-item" style="margin-top:0.5rem;"><span class="label">Scenario</span><span class="value">Speaker upgrade</span></div>';
-        if (data.speaker_event_answer) {
-          content += `<div class="result-item" style="margin-left:1rem;"><span class="label" style="font-size:0.75rem;">Which event as speaker</span><span class="value" style="font-size:0.85rem;">${escapeHtml(data.speaker_event_answer)}</span></div>`;
-        }
       } else if (scenario === 'sponsor_upgrade') {
         content += '<div class="result-item" style="margin-top:0.5rem;"><span class="label">Scenario</span><span class="value">Sponsor upgrade (Sponsor Client/Executive)</span></div>';
       }

@@ -54,6 +54,20 @@ ASSOC_LABEL_SPONSOR_CLIENT = 109
 ASSOC_LABEL_SPONSOR_EXECUTIVE = 107
 ASSOC_LABEL_UNKNOWN = 143
 
+# All managed label IDs — used to identify stale labels to remove on re-sync
+MANAGED_LABEL_IDS = frozenset({
+    ASSOC_LABEL_PAYING_DELEGATE,
+    ASSOC_LABEL_DEALMAKERS_GUEST,
+    ASSOC_LABEL_SPEAKER_NON_SPONSOR,
+    ASSOC_LABEL_SPEAKER_SPONSOR,
+    ASSOC_LABEL_SPONSOR_CLIENT,
+    ASSOC_LABEL_SPONSOR_EXECUTIVE,
+    ASSOC_LABEL_UNKNOWN,
+})
+
+# Speaker label IDs — used to give speaker reg types priority over EXEC/CLIENT sponsor labels
+SPEAKER_LABEL_IDS = frozenset({ASSOC_LABEL_SPEAKER_NON_SPONSOR, ASSOC_LABEL_SPEAKER_SPONSOR})
+
 # Paying Delegate: only these registration types (attendee types) get Paying Delegate. We do not use registration path.
 PAYING_DELEGATE_TYPES = frozenset({
     "Academic/Student",
@@ -1738,30 +1752,6 @@ def api_hubspot_currencies():
         return jsonify({"error": str(e)}), 500
 
 
-def _get_speaker_event_answer(attendee: dict) -> str:
-    """
-    Get answer to "Which event are you participating as a speaker?".
-    Returns event name (matched to one of the events), "both", or "".
-    We match by question text (wording), not question ID: the wording is stable across events
-    while the question ID may change per event.
-    """
-    answers = attendee.get("answers") or []
-    for a in answers:
-        qtext = (a.get("question_text") or "").strip().lower()
-        if "participating as a speaker" in qtext or "which event" in qtext:
-            val = a.get("value")
-            if isinstance(val, list):
-                val = " ".join(str(x) for x in val if x).strip()
-            else:
-                val = (val or "").strip()
-            if not val:
-                return ""
-            if val.lower() == "both":
-                return "both"
-            return val
-    return ""
-
-
 def _build_deal_plan(
     attendee: dict,
     order: dict,
@@ -1908,61 +1898,23 @@ def _build_deal_plan(
             # Use THIS step's amount (last in list); with phantom transactions the paid upgrade may be step 3 or 4, not step 2
             additional_amount = (orders_amounts[-1] or 0) if orders_amounts else 0
             deal_scenario = "speaker_upgrade"
-            speaker_answer = _get_speaker_event_answer(attendee).strip()
-            # Check Non Sponsor first so we never assign Speaker - Sponsor to a non-sponsor (e.g. type "Speaker Path" with path "Non Sponsor").
-            if "Speaker" in combined_type and "Non Sponsor" in combined_type:
-                speaker_label = (ASSOC_LABEL_SPEAKER_NON_SPONSOR, "Speaker - Non Sponsor")
-            elif "Speaker Path" in combined_type and "Internal" in combined_type:
-                speaker_label = (ASSOC_LABEL_SPEAKER_SPONSOR, "Speaker - Sponsor")
-            else:
-                speaker_label = (ASSOC_LABEL_SPEAKER_NON_SPONSOR, "Speaker - Non Sponsor")
 
+            # Derive per-event labels from what _resolve_association_label_and_events() already determined.
+            # Speaker reg type → speaker label on their speaking event(s).
+            # If they paid for a second event, that event already has Paying Delegate label.
             speaker_upgrade_event_labels = []
             for ea in event_associations:
-                event_name = (ea.get("full_name") or "").strip() or f"Event {ea.get('event_id')}"
-                event_code_ea = (ea.get("event_code") or "").strip()
-                # Speaker association: "both" → speaker on both; one event name → that event speaker, other = guest.
-                if speaker_answer.lower() == "both":
-                    speaker_upgrade_event_labels.append({
-                        "event_id": ea.get("event_id"),
-                        "event_name": event_name,
-                        "event_code": event_code_ea,
-                        "label_id": speaker_label[0],
-                        "label_name": speaker_label[1],
-                    })
-                elif speaker_answer and (speaker_answer.lower() in event_name.lower() or event_name.lower() in speaker_answer.lower()):
-                    speaker_upgrade_event_labels.append({
-                        "event_id": ea.get("event_id"),
-                        "event_name": event_name,
-                        "event_code": event_code_ea,
-                        "label_id": speaker_label[0],
-                        "label_name": speaker_label[1],
-                    })
-                else:
-                    # Not speaking at this event: speaker upgrade paid → Paying Delegate; else Guest (simple rule)
-                    try:
-                        paid = float(additional_amount or 0) > 0
-                    except (TypeError, ValueError):
-                        paid = False
-                    if paid:
-                        label_id, label_name = ASSOC_LABEL_PAYING_DELEGATE, "Paying Delegate"
-                    else:
-                        label_id, label_name = ASSOC_LABEL_DEALMAKERS_GUEST, "Dealmakers Guest"
-                    speaker_upgrade_event_labels.append({
-                        "event_id": ea.get("event_id"),
-                        "event_name": event_name,
-                        "event_code": event_code_ea,
-                        "label_id": label_id,
-                        "label_name": label_name,
-                    })
+                speaker_upgrade_event_labels.append({
+                    "event_id": ea.get("event_id"),
+                    "event_name": (ea.get("full_name") or "").strip() or f"Event {ea.get('event_id')}",
+                    "event_code": (ea.get("event_code") or "").strip(),
+                    "label_id": ea.get("label_id"),
+                    "label_name": ea.get("label_name", ""),
+                })
 
             # Deal should belong to the event where attendee becomes Paying Delegate.
-            paying_delegate_label_id = ASSOC_LABEL_PAYING_DELEGATE
             paid_event = next(
-                (
-                    e for e in (speaker_upgrade_event_labels or [])
-                    if e.get("label_id") == paying_delegate_label_id
-                ),
+                (e for e in speaker_upgrade_event_labels if e.get("label_id") == ASSOC_LABEL_PAYING_DELEGATE),
                 None,
             )
             if paid_event:
@@ -1970,8 +1922,8 @@ def _build_deal_plan(
                 event_name = (paid_event.get("event_name") or "").strip() or f"Event {event_id}"
                 event_code = (paid_event.get("event_code") or "").strip()
             else:
-                # Fallback to previous behavior when labels couldn't be resolved.
-                new_event = event_associations[1] if len(event_associations) > 1 else event_associations[0]
+                # No Paying Delegate event — fall back to the last event in the list.
+                new_event = event_associations[-1] if event_associations else {}
                 event_id = new_event.get("event_id")
                 event_name = (new_event.get("full_name") or "").strip() or f"Event {event_id}"
                 event_code = (new_event.get("event_code") or "").strip()
@@ -2293,7 +2245,6 @@ def _build_deal_plan(
         "deal_scenario": deal_scenario,
         "tax_breakdown": tax_breakdown,
         "speaker_upgrade_event_labels": speaker_upgrade_event_labels,
-        "speaker_event_answer": _get_speaker_event_answer(attendee) if is_speaker else "",
     }
 
 
@@ -4289,75 +4240,47 @@ def _resolve_association_label_and_events(
     # matching one). A single-event ticket + event code keeps the original behaviour (Sponsor on
     # matching event only, Dealmakers Guest on others).
     if sponsor_main_label_id is not None and event_by_id:
-        guest_label = (ASSOC_LABEL_DEALMAKERS_GUEST, "Dealmakers Guest")
         all_access = len(event_by_id) >= 2  # All Access gives access to 2+ events
-        if sponsor_by_festival_code or all_access:
-            # Festival code OR All Access + event code → sponsor label on all admitted events.
-            for ev in event_by_id.values():
-                ev["label_id"] = sponsor_main_label_id
-                ev["label_name"] = sponsor_main_label_name
+        if base_label[0] in SPEAKER_LABEL_IDS:
+            # Speaker reg type wins over EXEC/CLIENT for event labels — keep speaker label.
+            # Sponsor record associations are still created (above). Only event labels are protected here.
+            # For all-access with an event-code suffix: events NOT tied to the EXEC/CLIENT code were
+            # paid for as a separate transaction → Paying Delegate if paid, else Dealmakers Guest.
+            if all_access and not sponsor_by_festival_code and sponsor_event_ids_from_code:
+                try:
+                    _is_paid = float(current_transaction_amount or 0) > 0
+                except (TypeError, ValueError):
+                    _is_paid = False
+                _other_label_id = ASSOC_LABEL_PAYING_DELEGATE if _is_paid else ASSOC_LABEL_DEALMAKERS_GUEST
+                _other_label_name = "Paying Delegate" if _is_paid else "Dealmakers Guest"
+                for eid_str, ev in event_by_id.items():
+                    eid_val = str(ev.get("event_id", eid_str))
+                    if eid_val not in sponsor_event_ids_from_code:
+                        ev["label_id"] = _other_label_id
+                        ev["label_name"] = _other_label_name
+            # Festival-code or single-event: speaker label already set from base_label in Step 1 — no change.
         else:
-            # Single-event ticket + event code → sponsor only on matching event; others = guest.
-            matched_any = False
-            for eid_str, ev in list(event_by_id.items()):
-                eid_val = str(ev.get("event_id", eid_str))
-                if eid_val in sponsor_event_ids_from_code:
+            # Non-speaker: apply sponsor label override as before.
+            guest_label = (ASSOC_LABEL_DEALMAKERS_GUEST, "Dealmakers Guest")
+            if sponsor_by_festival_code or all_access:
+                # Festival code OR All Access + event code → sponsor label on all admitted events.
+                for ev in event_by_id.values():
                     ev["label_id"] = sponsor_main_label_id
                     ev["label_name"] = sponsor_main_label_name
-                    matched_any = True
-                else:
-                    ev["label_id"] = guest_label[0]
-                    ev["label_name"] = guest_label[1]
-            if not matched_any and sponsor_event_ids_from_code:
-                warnings.append("EXEC/CLIENT event code did not match admitted event(s); using Dealmakers Guest for admitted event association(s).")
-
-    # 2d. Speaker question (all-access ticket = 2+ events): "Which event are you participating as a speaker?"
-    # There are only two speaker types: Speaker - Sponsor and Speaker - Non Sponsor (no generic "Speaker").
-    # Only apply this logic when we have identified the attendee as one of these two from type + path.
-    # - Answer "both" → associate as that speaker type on both events.
-    # - Answer = one event name → that event = that speaker type, other event(s) = Dealmakers Guest.
-    speaker_answer_raw = _get_speaker_event_answer(attendee).strip()
-    if speaker_answer_raw and len(event_by_id) >= 2:
-        reg_path = (attendee.get("registration_path") or "").strip()
-        combined_type = f"{reg_type} {reg_path}".strip()
-        # Check Non Sponsor first so we never assign Speaker - Sponsor to a non-sponsor.
-        if "Speaker" in combined_type and "Non Sponsor" in combined_type:
-            speaker_label = (ASSOC_LABEL_SPEAKER_NON_SPONSOR, "Speaker - Non Sponsor")
-        elif "Speaker Path" in combined_type and "Internal" in combined_type:
-            speaker_label = (ASSOC_LABEL_SPEAKER_SPONSOR, "Speaker - Sponsor")
-        else:
-            speaker_label = None  # Not a recognised speaker type; do not apply speaker-question logic
-        if speaker_label is not None:
-            speaker_answer = speaker_answer_raw.lower()
-            # Simple rule: speaker upgrade paid (this transaction amount > 0) → "other" event = Paying Delegate; else Guest.
-            try:
-                paid = float(current_transaction_amount or 0) > 0
-            except (TypeError, ValueError):
-                paid = False
-            other_event_label = (
-                (ASSOC_LABEL_PAYING_DELEGATE, "Paying Delegate")
-                if paid
-                else (ASSOC_LABEL_DEALMAKERS_GUEST, "Dealmakers Guest")
-            )
-            if speaker_answer == "both":
-                for ev in event_by_id.values():
-                    ev["label_id"], ev["label_name"] = speaker_label[0], speaker_label[1]
             else:
-                # Match answer to one event by name (first event whose full_name contains or is contained in answer)
-                speaking_event_id = None
-                for eid_str, ev in event_by_id.items():
-                    event_name = (ev.get("full_name") or "").strip().lower()
-                    if not event_name:
-                        continue
-                    if speaker_answer in event_name or event_name in speaker_answer:
-                        speaking_event_id = eid_str
-                        break
-                if speaking_event_id is not None:
-                    for eid_str, ev in event_by_id.items():
-                        if eid_str == speaking_event_id:
-                            ev["label_id"], ev["label_name"] = speaker_label[0], speaker_label[1]
-                        else:
-                            ev["label_id"], ev["label_name"] = other_event_label[0], other_event_label[1]
+                # Single-event ticket + event code → sponsor only on matching event; others = guest.
+                matched_any = False
+                for eid_str, ev in list(event_by_id.items()):
+                    eid_val = str(ev.get("event_id", eid_str))
+                    if eid_val in sponsor_event_ids_from_code:
+                        ev["label_id"] = sponsor_main_label_id
+                        ev["label_name"] = sponsor_main_label_name
+                        matched_any = True
+                    else:
+                        ev["label_id"] = guest_label[0]
+                        ev["label_name"] = guest_label[1]
+                if not matched_any and sponsor_event_ids_from_code:
+                    warnings.append("EXEC/CLIENT event code did not match admitted event(s); using Dealmakers Guest for admitted event association(s).")
 
     # 3. For each event, get festivals the event is associated to; add attendee→festival and show in output
     festival_ids_seen = {str(f.get("id")) for f in festival_assocs if f.get("id")}
@@ -4725,6 +4648,39 @@ def _hubspot_put_association(
         return ok
     except Exception as e:
         app.logger.warning("put_association exception: %s→%s/%s→%s/%s err=%s", from_type, from_id, to_type, to_id, association_type_id, e)
+        return False
+
+
+def _hubspot_delete_association(
+    from_type: str, from_id: str, to_type: str, to_id: str, association_type_id: int
+) -> bool:
+    """
+    Remove a specific labeled association between two objects using the HubSpot v4 batch delete endpoint.
+    Returns True on success.
+    """
+    if not HUBSPOT_TOKEN or not from_id or not to_id or association_type_id is None:
+        return False
+    try:
+        url = f"https://api.hubapi.com/crm/v4/objects/{from_type}/{from_id}/associations/{to_type}/{to_id}"
+        r = requests.delete(
+            url,
+            headers={
+                "Authorization": f"Bearer {HUBSPOT_TOKEN}",
+                "Content-Type": "application/json",
+            },
+            json=[{"associationCategory": "USER_DEFINED", "associationTypeId": association_type_id}],
+            timeout=15,
+        )
+        ok = r.ok or r.status_code in (200, 204)
+        if not ok:
+            app.logger.warning(
+                "delete_association failed: %s→%s/%s→%s/%s status=%s body=%s",
+                from_type, from_id, to_type, to_id, association_type_id,
+                r.status_code, r.text[:300],
+            )
+        return ok
+    except Exception as e:
+        app.logger.warning("delete_association exception: %s→%s/%s→%s/%s err=%s", from_type, from_id, to_type, to_id, association_type_id, e)
         return False
 
 
@@ -5155,6 +5111,10 @@ def _execute_sync_step(
         HUBSPOT_ATTENDEE_OBJECT, result["attendee_id"], HUBSPOT_EVENTS_OBJECT
     )
     existing_event_set = {(a["to_id"], a.get("association_type_id")) for a in existing_event_assocs}
+    # Map event_id → set of existing label_ids (to detect stale managed labels on re-sync)
+    existing_event_labels: dict = {}
+    for _a in existing_event_assocs:
+        existing_event_labels.setdefault(_a["to_id"], set()).add(_a.get("association_type_id"))
     existing_festival_ids = {
         a["to_id"] for a in _hubspot_get_object_associations(
             HUBSPOT_ATTENDEE_OBJECT, result["attendee_id"], HUBSPOT_FESTIVALS_OBJECT
@@ -5171,7 +5131,7 @@ def _execute_sync_step(
         )
     }
 
-    # 3. Attendee → Events (with label); skip if already associated with same label
+    # 3. Attendee → Events (with label); remove stale managed labels, then write new label
     for ea in event_associations:
         eid = str(ea.get("event_id", ""))
         label_id = ea.get("label_id")
@@ -5180,6 +5140,17 @@ def _execute_sync_step(
         if (eid, label_id) in existing_event_set:
             result["actions"].append(f"Already associated to event {ea.get('full_name', eid)} ({ea.get('label_name', '')}) – skipped")
             continue
+        # Remove any stale managed labels on this event before writing the new one
+        for stale_label_id in (existing_event_labels.get(eid) or set()):
+            if stale_label_id in MANAGED_LABEL_IDS and stale_label_id != label_id:
+                if _hubspot_delete_association(
+                    HUBSPOT_ATTENDEE_OBJECT, result["attendee_id"],
+                    HUBSPOT_EVENTS_OBJECT, eid,
+                    association_type_id=stale_label_id,
+                ):
+                    result["actions"].append(f"Removed stale association label {stale_label_id} on event {ea.get('full_name', eid)}")
+                else:
+                    result["errors"].append(f"Failed to remove stale label {stale_label_id} on event {ea.get('full_name', eid)}")
         if _hubspot_put_association(
             HUBSPOT_ATTENDEE_OBJECT, result["attendee_id"],
             HUBSPOT_EVENTS_OBJECT, eid,
@@ -5618,7 +5589,6 @@ def hubspot_sync_attendee():
             "deal_scenario": deal_result.get("deal_scenario", "standard"),
             "tax_breakdown": deal_result.get("tax_breakdown"),
             "speaker_upgrade_event_labels": deal_result.get("speaker_upgrade_event_labels"),
-            "speaker_event_answer": deal_result.get("speaker_event_answer", ""),
             "contact": (
                 {"found": True, "id": contact_result.get("id"), "email": (contact_result.get("properties") or {}).get("email", "")}
                 if contact_result else
@@ -5861,7 +5831,6 @@ def hubspot_sync_attendee():
                 "deal_scenario": deal_result_k.get("deal_scenario", "standard"),
                 "tax_breakdown": deal_result_k.get("tax_breakdown"),
                 "speaker_upgrade_event_labels": deal_result_k.get("speaker_upgrade_event_labels"),
-                "speaker_event_answer": deal_result_k.get("speaker_event_answer", ""),
                 "contact": (
                     {"found": True, "id": "simulated-after-step-1", "email": email}
                     if k > 1 else report["contact"]
